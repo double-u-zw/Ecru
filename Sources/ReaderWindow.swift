@@ -257,7 +257,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         pagination.spacing = 4; pagination.distribution = .fill
         for field in [pageField,pageCount] {
             field.translatesAutoresizingMaskIntoConstraints = false
-            field.heightAnchor.constraint(equalToConstant:20).isActive = true
+            field.heightAnchor.constraint(equalToConstant:16).isActive = true
         }
         pageField.widthAnchor.constraint(equalToConstant:34).isActive = true
         zoom.isBordered = false; zoom.font = .monospacedDigitSystemFont(ofSize:13,weight:.regular)
