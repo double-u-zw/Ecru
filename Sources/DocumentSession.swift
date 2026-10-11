@@ -558,7 +558,7 @@ final class DocumentSession {
                     throw DocumentSessionError.validation("原文、页框、旋转或目录改变")
                 }
                 guard try PDFContentIntegrity(bytes) == content else { throw DocumentSessionError.validation("原始页面内容或图像资源改变") }
-                guard PDFFidelity(reopened).signature == fidelity.signature else {
+                guard PDFFidelity(reopened).matches(fidelity) else {
                     if EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
                         print("EXPECTED", fidelity.signature, "ACTUAL", PDFFidelity(reopened).signature)
                         fflush(stdout)
@@ -958,10 +958,16 @@ private struct PDFStructure: Equatable {
 
 /// This guards supported semantic fields, not byte-for-byte PDF preservation.
 private struct PDFFidelity {
+    private struct Record {
+        let identity: String
+        let coordinates: [CGFloat]
+    }
+    private let comparable: [Record]
     let signature: String
     let recordsByPage: [[String]]
     init(_ document: PDFDocument) {
         var records: [String] = []
+        var comparable: [Record] = []
         var pages: [[String]] = []
         for index in 0..<document.pageCount {
             let start = records.count
@@ -976,6 +982,8 @@ private struct PDFFidelity {
                 let quad = (annotation.quadrilateralPoints ?? []).map { point($0.pointValue) }.joined(separator: ";")
                 let metadata = [PDFAnnotationKey(rawValue:"/LeafInkStroke"),AnnotationPDF.markKey,AnnotationPDF.noteKey].map { annotation.value(forAnnotationKey:$0) as? String ?? "" }.joined(separator:"|")
                 let owned = InkAnnotationCodec.stroke(from: annotation)
+                var pathCoordinates: [CGFloat] = []
+                var pathTopology: [String] = []
                 let rawPathPoints = (annotation.paths ?? []).map { path -> String in
                     var pieces: [String] = []
                     var values = [NSPoint](repeating: .zero, count: 3)
@@ -984,8 +992,10 @@ private struct PDFFidelity {
                         let count: Int
                         if #available(macOS 14.0, *) { count = kind == .cubicCurveTo ? 3 : (kind == .closePath ? 0 : 1) }
                         else { count = kind == .curveTo ? 3 : (kind == .closePath ? 0 : 1) }
+                        pathCoordinates += values.prefix(count).flatMap { [$0.x,$0.y] }
                         pieces.append("\(kind.rawValue):" + values.prefix(count).map(point).joined(separator: ";"))
                     }
+                    pathTopology.append((0..<path.elementCount).map { String(path.element(at:$0).rawValue) }.joined(separator:","))
                     return pieces.joined(separator: "/")
                 }.joined(separator: "~")
                 // Owned geometry is checked against exact embedded points by the codec.
@@ -995,12 +1005,27 @@ private struct PDFFidelity {
                 let bounds = annotation.value(forAnnotationKey:AnnotationPDF.noteKey) != nil ? CGRect.zero : owned?.bounds ?? annotation.bounds
                 let destination = annotation.destination
                 let navigation = destination != nil ? actionDescription(nil, destination: destination, document: document) : actionDescription(annotation.action, destination: nil, document: document)
+                let identity = "\(index)|\(annotation.type ?? "")|\(color)|\(annotation.contents ?? "")|\(annotation.userName ?? "")|\(number(annotation.border?.lineWidth ?? 0))|\((annotation.quadrilateralPoints ?? []).count)|\(owned == nil ? pathTopology.joined(separator:"~") : pathPoints)|\(metadata)|\(annotation.shouldDisplay)|\(annotation.shouldPrint)|" + navigation
+                let coordinates = [bounds.minX,bounds.minY,bounds.width,bounds.height] +
+                    (annotation.quadrilateralPoints ?? []).flatMap { [$0.pointValue.x,$0.pointValue.y] } +
+                    (owned == nil ? pathCoordinates : [])
+                comparable.append(Record(identity:identity,coordinates:coordinates))
                 records.append("\(index)|\(annotation.type ?? "")|\(rectangle(bounds))|\(color)|\(annotation.contents ?? "")|\(annotation.userName ?? "")|\(number(annotation.border?.lineWidth ?? 0))|\(quad)|\(pathPoints)|\(metadata)|\(annotation.shouldDisplay)|\(annotation.shouldPrint)|" + navigation)
             }
             pages.append(Array(records[start...]))
         }
         recordsByPage = pages
+        self.comparable = comparable
         signature = records.joined(separator: "\n")
+    }
+    func matches(_ other: PDFFidelity) -> Bool {
+        // Older PDFKit rounds Rect, QuadPoints and unowned InkList coordinates.
+        // Keep identities, text, links, colors, topology and editable payload exact;
+        // permit only sub-millipoint serialization drift in standard geometry.
+        comparable.count == other.comparable.count && zip(comparable,other.comparable).allSatisfy { a,b in
+            a.identity == b.identity && a.coordinates.count == b.coordinates.count &&
+                zip(a.coordinates,b.coordinates).allSatisfy { $0.isFinite && $1.isFinite && abs($0-$1)<=0.001 }
+        }
     }
 }
 

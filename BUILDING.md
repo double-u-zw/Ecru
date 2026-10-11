@@ -33,7 +33,8 @@ Apps. Cross compilation does not require an emulator. The optional
 it is not used for the beta.2 downloads.
 
 The first build downloads pinned Abseil, QPDF 12.4.2, libjpeg-turbo 3.2.0 and build-time GoogleTest configuration
-from their public upstream repositories. Google Ink, Stroke Modeler and the
+from their public upstream repositories. QPDF and JPEG source archives are pinned
+by full commit and SHA-256, without downloading their development histories. Google Ink, Stroke Modeler and the
 perfect-freehand reference are vendored; offline preview assets are in Resources.
 QPDF uses its native crypto backend and macOS system zlib; OpenSSL, GnuTLS and Homebrew native libraries are not required. There is no runtime network dependency. Do not use paths outside the checkout.
 
@@ -64,7 +65,9 @@ ECRU_RELEASE_DOCS="$PWD" zsh Scripts/build-release.sh
 Output: `output/releases/<EcruReleaseVersion>/Ecru-<version>-arm64.dmg` and
 `Ecru-<version>-x86_64.dmg`,
 installation notes, release notes and SHA-256 checksums. `Scripts/Info.plist` owns
-App/release versions; native runtime metadata must match them. The release archive
+App/release versions; native runtime metadata must match them. The shared checksum
+file lists both DMGs; users downloading one can verify it with
+`shasum -a 256 -c SHA256SUMS.txt --ignore-missing`. The release archive
 contains LICENSE, NOTICE and all third-party texts. Signing is currently ad hoc;
 Developer ID and Apple notarization require the maintainer's credentials.
 

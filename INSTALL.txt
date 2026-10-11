@@ -13,7 +13,7 @@ Do not disable Gatekeeper or System Integrity Protection.
 打开 PDF ⌘O · 保存 ⌘S · 另存为 ⇧⌘S · 撤销 ⌘Z · 重做 ⇧⌘Z
 Guide: https://github.com/double-u-zw/Ecru
 Feedback: https://github.com/double-u-zw/Ecru/issues
-Verify downloads: shasum -a 256 -c SHA256SUMS.txt
+Verify downloads: shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 Encrypted, signed and form PDFs are not supported. No OCR or automatic updater.
 The interface is primarily Chinese. Intel support has initial Rosetta validation;

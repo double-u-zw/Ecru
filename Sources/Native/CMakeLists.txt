@@ -3,6 +3,9 @@ project(EcruInk LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(FetchContent)
+if(POLICY CMP0135)
+  cmake_policy(SET CMP0135 NEW)
+endif()
 set(ABSL_PROPAGATE_CXX_STD ON)
 FetchContent_Declare(abseil-cpp
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
@@ -33,8 +36,8 @@ set(ECRU_JPEG_SOURCE "${CMAKE_BINARY_DIR}/_deps/libjpeg_turbo-src")
 set(ECRU_JPEG_BUILD "${CMAKE_BINARY_DIR}/_deps/libjpeg_turbo-build")
 file(MAKE_DIRECTORY "${ECRU_JPEG_SOURCE}" "${ECRU_JPEG_BUILD}")
 ExternalProject_Add(ecru_jpeg
-  GIT_REPOSITORY https://github.com/libjpeg-turbo/libjpeg-turbo.git
-  GIT_TAG c85e6b905bf237038faa936dab160ebfc5da0344
+  URL https://codeload.github.com/libjpeg-turbo/libjpeg-turbo/tar.gz/c85e6b905bf237038faa936dab160ebfc5da0344
+  URL_HASH SHA256=45209a3f315ed6156dac8d7fa451b8be62d83f2daa5581cb6b94ee9f3f82cf6f
   SOURCE_DIR "${ECRU_JPEG_SOURCE}" BINARY_DIR "${ECRU_JPEG_BUILD}"
   CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
     -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}
@@ -59,8 +62,8 @@ set(BUILD_DOC OFF CACHE BOOL "" FORCE)
 set(USE_IMPLICIT_CRYPTO OFF CACHE BOOL "" FORCE)
 set(REQUIRE_CRYPTO_NATIVE ON CACHE BOOL "" FORCE)
 FetchContent_Declare(qpdf
-  GIT_REPOSITORY https://github.com/qpdf/qpdf.git
-  GIT_TAG 4eba95899886e851cc41d76886483b347612f2a8)
+  URL https://codeload.github.com/qpdf/qpdf/tar.gz/4eba95899886e851cc41d76886483b347612f2a8
+  URL_HASH SHA256=c6de7611d2651ac71eebbabd0132b1dc13e8def0e4e640e791190f903490c799)
 FetchContent_MakeAvailable(qpdf)
 add_dependencies(libqpdf_object ecru_jpeg)
 add_dependencies(libqpdf ecru_jpeg)

@@ -100,7 +100,9 @@ enum UITestDriver {
                 try expect(reopened.inkStrokes(on:reopened.document.page(at:0)!).count==2 && reopened.annotations.notes.count==1,"PDF alone reopens editable ink and notes")
                 let runtime=InkRuntimeReport.configuration
                 try expect(runtime["sourceSHA256"] as? String=="72c5687901ca5e19cc66b9918412b6fd921869a8d9671710ccc506e179b0abfe","frozen Google Ink position model is unchanged")
-                try expect(runtime["build"] as? Int==13 && runtime["version"] as? String=="0.5.0-beta.2-rc.1","executing native archive identifies the candidate build")
+                let versionData=try Data(contentsOf:URL(fileURLWithPath:"Scripts/Info.plist"))
+                let versionInfo=try PropertyListSerialization.propertyList(from:versionData,format:nil) as! [String:Any]
+                try expect(runtime["build"] as? Int==Int(versionInfo["CFBundleVersion"] as! String) && runtime["version"] as? String==versionInfo["EcruReleaseVersion"] as? String,"executing native archive matches the source release version")
                 #if arch(x86_64)
                 let executingArchitecture="x86_64"
                 #else
