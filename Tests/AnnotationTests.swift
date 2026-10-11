@@ -36,6 +36,12 @@ import Darwin
         try save(s)
         let reopened=try DocumentSession.open(url:url)
         check(!reopened.annotationReadOnly,"new format opens editable")
+        if reopened.annotations != s.annotations, EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
+            print("EXPECTED MODEL", try AnnotationPDF.encode(s.annotations))
+            print("ACTUAL MODEL", try AnnotationPDF.encode(reopened.annotations))
+            print("WARNINGS", reopened.annotationWarnings)
+            fflush(stdout)
+        }
         check(reopened.annotations==s.annotations,"full authoritative data roundtrip")
         let selection=PDFSelection(document:s.document)
         for i in 0..<min(2,s.document.pageCount) { let p=s.document.page(at:i)!; if let part=p.selection(for:p.bounds(for:.cropBox)){selection.add(part)} }
