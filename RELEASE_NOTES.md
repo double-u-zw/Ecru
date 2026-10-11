@@ -6,6 +6,8 @@ Candidate for beta.2; the public beta.1 download remains unchanged.
   subtitle. Navigation stays left; page, zoom and search controls stay right.
 - Long filenames truncate in place, including after Save As. Native window menus,
   represented file URL, edited indication and filename/Finder interaction remain.
+- Fix safe-save false rejections when older PDFKit reorders extracted text runs;
+  original drawing streams, page geometry and annotations remain validated.
 - Apache-2.0 source published with build instructions, tests and third-party texts.
 - Universal 2 architecture build and one DMG for Apple Silicon and Intel, macOS 13+.
 - Current Google Ink recipe and position model are unchanged; cursor-free pen

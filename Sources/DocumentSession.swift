@@ -925,11 +925,20 @@ private func point(_ value: CGPoint) -> String { number(value.x) + "," + number(
 private struct PDFStructure: Equatable {
     let pages: [String]
     let outline: [String]
+    // PDFKit on older macOS may reorder extracted text runs and whitespace
+    // after serialization. Compare characters here; PDFContentIntegrity still
+    // requires unchanged drawing streams, preserving text sequence/placement.
+    private static func textCharacters(_ text: String) -> String {
+        let characters = text.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0)
+        }.sorted { $0.value < $1.value }
+        return String(String.UnicodeScalarView(characters))
+    }
     init(_ document: PDFDocument) {
         pages = (0..<document.pageCount).map { index in
             guard let page = document.page(at: index) else { return "missing" }
             let boxes = [PDFDisplayBox.mediaBox, .cropBox, .bleedBox, .trimBox, .artBox].map { rectangle(page.bounds(for: $0)) }.joined(separator: "|")
-            return "\(page.rotation)|\(boxes)|\(page.string ?? "")"
+            return "\(page.rotation)|\(boxes)|\(Self.textCharacters(page.string ?? ""))"
         }
         var entries: [String] = []
         func walk(_ node: PDFOutline, prefix: String) {
