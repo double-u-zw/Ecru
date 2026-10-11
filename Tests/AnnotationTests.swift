@@ -43,6 +43,9 @@ import Darwin
             fflush(stdout)
         }
         check(reopened.annotations==s.annotations,"full authoritative data roundtrip")
+        let originalPopups = PDFDocument(data:original)!.page(at:0)!.annotations.filter { $0.type == "Popup" }.count
+        check(reopened.document.page(at:0)!.annotations.filter { $0.type == "Popup" }.count == originalPopups,
+              "reopening removes generated note popups from the editing layer")
         let selection=PDFSelection(document:s.document)
         for i in 0..<min(2,s.document.pageCount) { let p=s.document.page(at:i)!; if let part=p.selection(for:p.bounds(for:.cropBox)){selection.add(part)} }
         let cross=s.addTextSelection(selection,withNote:true)!

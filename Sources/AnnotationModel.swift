@@ -16,6 +16,7 @@ struct PageIdentity: Codable, Equatable {
     var crop: CGRect
     var rotation: Int
     var textHash: String
+    var textInventoryHash: String? = nil
     var contentHash: String? = nil
 }
 struct PageMark: Codable, Equatable {
@@ -95,8 +96,43 @@ enum AnnotationPDF {
         guard store.valid(),store.version == envelope.version,store.minimumReader == envelope.minimumReader else { throw DocumentSessionError.validation("批注身份、几何或版本不一致") }
         return store
     }
+    static func ownedPopupIndices(on page: PDFPage) -> Set<Int> {
+        let pageAnnotations = page.annotations
+        // Some PDFKit versions return a newly synthesized `note.popup`
+        // rather than the Popup object listed in the page. Resolve its
+        // actual /Parent from the PDF instead of comparing wrapper identity.
+        var result = Set<Int>()
+        var rawAnnotations: CGPDFArrayRef?
+        if let dictionary = page.pageRef?.dictionary,
+           CGPDFDictionaryGetArray(dictionary, "Annots", &rawAnnotations),
+           let rawAnnotations, CGPDFArrayGetCount(rawAnnotations) == pageAnnotations.count {
+            for position in pageAnnotations.indices where pageAnnotations[position].type == "Popup" {
+                var raw: CGPDFDictionaryRef?
+                var parent: CGPDFDictionaryRef?
+                var subtype: UnsafePointer<CChar>?
+                var noteID: CGPDFStringRef?
+                if CGPDFArrayGetDictionary(rawAnnotations, position, &raw), let raw,
+                   CGPDFDictionaryGetName(raw, "Subtype", &subtype), let subtype,
+                   String(cString: subtype) == "Popup",
+                   CGPDFDictionaryGetDictionary(raw, "Parent", &parent), let parent,
+                   CGPDFDictionaryGetString(parent, String(AnnotationPDF.noteKey.rawValue.dropFirst()), &noteID), noteID != nil {
+                    result.insert(position)
+                }
+            }
+        }
+        return result
+    }
+    static func textCharacters(_ text: String) -> String {
+        let characters = text.unicodeScalars.filter {
+            !CharacterSet.whitespacesAndNewlines.contains($0)
+        }.sorted { $0.value < $1.value }
+        return String(String.UnicodeScalarView(characters))
+    }
     static func identity(_ page: PDFPage) -> PageIdentity {
-        PageIdentity(crop: page.bounds(for: .cropBox), rotation: page.rotation, textHash: hash(Data((page.string ?? "").utf8)))
+        let text = page.string ?? ""
+        return PageIdentity(crop: page.bounds(for: .cropBox), rotation: page.rotation,
+                            textHash: hash(Data(text.utf8)),
+                            textInventoryHash: hash(Data(textCharacters(text).utf8)))
     }
     static func make(_ mark: PageMark) -> PDFAnnotation {
         let a = PDFAnnotation(bounds: mark.anchor.bounds, forType: mark.kind == .highlight ? .highlight : .square, withProperties: nil)

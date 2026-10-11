@@ -179,7 +179,13 @@ final class DocumentSession {
                     var actual = AnnotationPDF.identity(page)
                     actual.contentHash = AnnotationPDF.hash(Data(originalContent.pages[i].utf8))
                     let saved = annotations.pages[i]
-                    if !AnnotationPDF.close(actual.crop,saved.crop) || actual.rotation != saved.rotation || actual.textHash != saved.textHash || actual.contentHash != saved.contentHash {
+                    // PDFKit extraction order can differ after saving even when
+                    // the original page drawing and character inventory are intact.
+                    // Older manifests without the optional inventory retain the
+                    // conservative exact-text check.
+                    let textChanged = actual.textHash != saved.textHash &&
+                        (saved.textInventoryHash == nil || actual.textInventoryHash != saved.textInventoryHash)
+                    if !AnnotationPDF.close(actual.crop,saved.crop) || actual.rotation != saved.rotation || textChanged || actual.contentHash != saved.contentHash {
                         var updated = actual; updated.id = saved.id; annotations.pages[i] = updated
                         for n in annotations.notes.indices where annotations.notes[n].anchors.contains(where: {$0.page == i}) { annotations.notes[n].locationUncertain = true }
                         annotationWarnings.append("第 \(i+1) 页内容或页框已变化；相关批注保留原定位，需手动重新关联。")
@@ -246,8 +252,9 @@ final class DocumentSession {
         }
         for (pi,page) in backingPages.enumerated() {
             let originals = page.annotations
+            let ownedPopups = AnnotationPDF.ownedPopupIndices(on: page)
             for (slot,a) in originals.enumerated() {
-                let isCarrier = a.value(forAnnotationKey: AnnotationPDF.manifest) != nil || a.value(forAnnotationKey: AnnotationPDF.noteKey) != nil
+                let isCarrier = ownedPopups.contains(slot) || a.value(forAnnotationKey: AnnotationPDF.manifest) != nil || a.value(forAnnotationKey: AnnotationPDF.noteKey) != nil
                 let isManaged = a.value(forAnnotationKey: AnnotationPDF.markKey) != nil
                 if isCarrier || isManaged {
                     if isManaged, let str=a.value(forAnnotationKey:AnnotationPDF.markKey) as? String, let id=UUID(uuidString:str), annotations.marks.contains(where:{$0.id == id}) { sourceMarkSlots[id]=(pi,slot) }
@@ -934,17 +941,11 @@ private struct PDFStructure: Equatable {
     // PDFKit on older macOS may reorder extracted text runs and whitespace
     // after serialization. Compare characters here; PDFContentIntegrity still
     // requires unchanged drawing streams, preserving text sequence/placement.
-    private static func textCharacters(_ text: String) -> String {
-        let characters = text.unicodeScalars.filter {
-            !CharacterSet.whitespacesAndNewlines.contains($0)
-        }.sorted { $0.value < $1.value }
-        return String(String.UnicodeScalarView(characters))
-    }
     init(_ document: PDFDocument) {
         pages = (0..<document.pageCount).map { index in
             guard let page = document.page(at: index) else { return "missing" }
             let boxes = [PDFDisplayBox.mediaBox, .cropBox, .bleedBox, .trimBox, .artBox].map { rectangle(page.bounds(for: $0)) }.joined(separator: "|")
-            return "\(page.rotation)|\(boxes)|\(Self.textCharacters(page.string ?? ""))"
+            return "\(page.rotation)|\(boxes)|\(AnnotationPDF.textCharacters(page.string ?? ""))"
         }
         var entries: [String] = []
         func walk(_ node: PDFOutline, prefix: String) {
@@ -973,28 +974,7 @@ private struct PDFFidelity {
             let start = records.count
             let page = document.page(at:index)
             let pageAnnotations = page?.annotations ?? []
-            // Some PDFKit versions return a newly synthesized `note.popup`
-            // rather than the Popup object listed in the page. Resolve its
-            // actual /Parent from the PDF instead of comparing wrapper identity.
-            var ownedPopupIndices = Set<Int>()
-            var rawAnnotations: CGPDFArrayRef?
-            if let dictionary = page?.pageRef?.dictionary,
-               CGPDFDictionaryGetArray(dictionary, "Annots", &rawAnnotations),
-               let rawAnnotations, CGPDFArrayGetCount(rawAnnotations) == pageAnnotations.count {
-                for position in pageAnnotations.indices where pageAnnotations[position].type == "Popup" {
-                    var raw: CGPDFDictionaryRef?
-                    var parent: CGPDFDictionaryRef?
-                    var subtype: UnsafePointer<CChar>?
-                    var noteID: CGPDFStringRef?
-                    if CGPDFArrayGetDictionary(rawAnnotations, position, &raw), let raw,
-                       CGPDFDictionaryGetName(raw, "Subtype", &subtype), let subtype,
-                       String(cString: subtype) == "Popup",
-                       CGPDFDictionaryGetDictionary(raw, "Parent", &parent), let parent,
-                       CGPDFDictionaryGetString(parent, String(AnnotationPDF.noteKey.rawValue.dropFirst()), &noteID), noteID != nil {
-                        ownedPopupIndices.insert(position)
-                    }
-                }
-            }
+            let ownedPopupIndices = page.map { AnnotationPDF.ownedPopupIndices(on: $0) } ?? []
             let ownedPopups = pageAnnotations.filter { $0.value(forAnnotationKey:AnnotationPDF.noteKey) != nil }.compactMap(\.popup)
             for (position, annotation) in pageAnnotations.enumerated() {
                 if ownedPopupIndices.contains(position) || ownedPopups.contains(where: { $0 === annotation }) { continue }
