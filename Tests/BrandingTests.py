@@ -6,7 +6,14 @@ app=root/'output/Ecru.app'
 info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
 assert info['CFBundleExecutable']=='Ecru'
 assert info['CFBundleIdentifier']=='local.leafink.reader.development'
-assert info['CFBundleShortVersionString']=='0.5.0' and info['CFBundleVersion']=='13'
+expected=plistlib.loads((root/'Scripts/Info.plist').read_bytes())
+for key in ['CFBundleShortVersionString','CFBundleVersion','EcruReleaseVersion','LSMinimumSystemVersion']:
+    assert info[key]==expected[key],f'Bundle/source version mismatch: {key}'
+assert info['LSMinimumSystemVersion']=='13.0'
+import json
+configuration=json.loads((app/'Contents/Resources/InkSource/parameters.json').read_text())
+assert configuration['version']==info['EcruReleaseVersion']
+assert str(configuration['build'])==info['CFBundleVersion']
 assert info['EcruPenRecipe']=='google-ink-daily-v5'
 assert 'google-ink-daily-v5' in (root/'Sources/HandwritingEngine.swift').read_text()
 assert (app/'Contents/Resources/Licenses/Google-Ink.txt').is_file()

@@ -4,11 +4,9 @@
 
 轻量、原生的 macOS PDF 阅读与手写批注工具。打开文档，在原文上直接书写，把想法留在阅读现场。
 
-**公开下载：0.5.0-beta.1（12）** · Apple Silicon · macOS 13+
+**公开 Beta：0.5.0-beta.2（15）** · macOS 13+ · Apache-2.0
 
-当前源码：**0.5.0-beta.2-rc.2（14）** · Apache-2.0 · Apple Silicon（arm64）与 Intel（x86_64）独立安装包。beta.2 安装包待 UI 验收后发布。
-
-[下载 DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.1/Ecru-0.5.0-beta.1-arm64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
+[Apple Silicon DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.2/Ecru-0.5.0-beta.2-arm64.dmg) · [Intel DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.2/Ecru-0.5.0-beta.2-x86_64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.2) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 
 ![Ecru 实际应用窗口：PDF 阅读与手写批注](assets/reading-candidate.png)
 
@@ -25,23 +23,23 @@
 
 ![Ecru 实际应用窗口：文字批注](assets/notes-candidate.png)
 
-截图来自 beta.2 候选的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
+截图来自 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
 
 ## 系统要求
 
 | 项目 | 要求 |
 | --- | --- |
-| 当前源码 / beta.2 候选 | Apple Silicon（arm64）/ Intel（x86_64） |
+| beta.2 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
 | 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；云端 macOS 14 arm64 / macOS 15 Intel |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
-已发布的 beta.1 安装包仅支持 Apple Silicon；beta.2 候选包含 Intel 架构。较早的 macOS 与不同输入设备尚未逐一实机验收。
+beta.2 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
 
 ## 下载与安装
 
-1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载 **Ecru-0.5.0-beta.1-arm64.dmg**。当前 main 包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
+1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和 beta.2 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
 2. 打开 DMG，将 **Ecru.app** 拖入 **Applications（应用程序）**，然后推出磁盘映像。
 3. 从“应用程序”启动 Ecru。
 4. 本 Beta 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
@@ -87,11 +85,11 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 这是 Ecru 的源码、公开下载、使用说明和反馈仓库。历史开发 Git 仓库保持独立，当前正式源码以干净提交公开。
 
-[第三方组件与许可证](THIRD_PARTY_NOTICES.md) · [分发说明](DISTRIBUTION.md) · [当前候选说明](RELEASE_NOTES.md) · [首次 Beta Release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1)
+[第三方组件与许可证](THIRD_PARTY_NOTICES.md) · [分发说明](DISTRIBUTION.md) · [当前版本说明](RELEASE_NOTES.md) · [首次 Beta Release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1)
 
 ---
 
-**Ecru** is a native PDF reader and handwriting annotation app for macOS. This first public Beta is for **Apple Silicon on macOS 13+**, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). Intel, OCR, automatic updates, encrypted/signed/form PDFs are not supported in this release. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
+**Ecru** is a native PDF reader and handwriting annotation app for macOS. This public Beta supports **Apple Silicon and Intel on macOS 13+**, with separate arm64 and x86_64 DMGs, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). OCR, automatic updates and encrypted/signed/form PDFs are not supported in this release. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
 
 ## 开发与开源许可
 

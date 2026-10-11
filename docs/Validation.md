@@ -1,6 +1,6 @@
-# beta.2 development update
+# beta.2 validation
 
-Current source: **0.5.0-beta.2-rc.2 (14)**. The prior RC1 artifacts and tag remain
+Release source: **0.5.0-beta.2 (15)**. UI accepted by the maintainer. The prior RC1 artifacts and tag remain
 unchanged. This update aligns the three reading-toolbar controls, follows the
 viewport for the page indicator, and adds the optional isolated Ecru Dev build.
 Local arm64 and Rosetta x86_64 UI runs each passed 59 checks on macOS 27.0.1
@@ -46,4 +46,4 @@ the recipe remains `google-ink-daily-v5`.
 Physical Intel pen/trackpad interaction, macOS 13 hardware, mixed-DPI displays and device-specific
 handwriting latency remain separate human checks. Automated events do not measure
 physical pen latency. Ad-hoc signing is verified; Developer ID/notarization is
-not available. Final beta.2 publication waits for UI acceptance.
+not available. UI acceptance is complete; this remains a public Beta.

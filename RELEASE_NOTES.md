@@ -1,6 +1,10 @@
-# Ecru 0.5.0-beta.2-rc.2 (14)
+# Ecru 0.5.0-beta.2 (15)
 
-Candidate for beta.2; the public beta.1 download remains unchanged.
+Native macOS UI refinements, open source and Intel support.
+
+Download **arm64** for Apple Silicon (M series), or **x86_64** for Intel. Both
+packages require macOS 13+ and contain the same features. Historical beta.1
+remains available without changes.
 
 - Align navigation icons and page-number baselines with native stack layout.
   Keep the page indicator synchronized with continuous scrolling and page jumps.
@@ -24,5 +28,9 @@ Validation covers core PDF save/recovery/legacy compatibility, native tool editi
 light/dark windows and multiple sizes. Core regressions passed on native macOS 14
 arm64 and macOS 15 Intel CI, as well as locally on arm64 and Rosetta. Physical Intel
 pen/trackpad interaction, macOS 13 and mixed-DPI monitors remain human checks.
-This candidate is ad-hoc signed and not notarized. No automatic update or OCR.
-UI acceptance is required before publishing the beta.2 Release.
+This Beta is ad-hoc signed and not notarized. On first launch, use **System
+Settings → Privacy & Security → Open Anyway** if macOS blocks the application.
+No automatic update or OCR.
+
+[Build instructions](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.2/BUILDING.md) ·
+[Known limitations and feedback](https://github.com/double-u-zw/Ecru#已知限制)

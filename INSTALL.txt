@@ -1,11 +1,11 @@
-Ecru 0.5.0-beta.2-rc.2 (14)
+Ecru 0.5.0-beta.2 (15)
 macOS 13 Ventura or later
 Apple Silicon (M series): choose the -arm64.dmg.
 Intel: choose the -x86_64.dmg.
 Both packages contain the same version and features.
 
 Drag Ecru.app to Applications, eject the DMG, then launch Ecru.
-This candidate is ad-hoc signed and has not been Apple-notarized.
+This Beta is ad-hoc signed and has not been Apple-notarized.
 If macOS blocks first launch: System Settings → Privacy & Security → Open Anyway.
 Apple instructions: https://support.apple.com/en-us/102445
 Do not disable Gatekeeper or System Integrity Protection.
