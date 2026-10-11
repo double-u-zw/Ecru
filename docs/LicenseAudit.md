@@ -37,3 +37,9 @@ Plaintext scans check personal absolute paths, private-key headers and common
 credential patterns. PDF metadata and annotation dictionaries are checked as well.
 These checks describe the actual export, rather than changing user documents.
 The historical beta.1 tag and Release assets are retained byte-for-byte.
+
+## PDF page preservation
+
+QPDF 12.4.2 (4eba95899886e851cc41d76886483b347612f2a8) is Apache-2.0. Its complete LICENSE and NOTICE are included, including MIT sphlib SHA-2 and public-domain Rijndael notices. Build-time qtest is not distributed. libjpeg-turbo 3.2.0 (c85e6b905bf237038faa936dab160ebfc5da0344) uses IJG/BSD-style licenses; its LICENSE and README.ijg are included unchanged. Both are statically built per architecture from pinned upstream source. Only libjpeg API code is linked; TurboJPEG, CLI, SIMD and optional external crypto libraries are excluded. macOS supplies system zlib.
+
+This software is based in part on the work of the Independent JPEG Group.

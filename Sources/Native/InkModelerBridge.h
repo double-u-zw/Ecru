@@ -1,5 +1,6 @@
 #ifndef ECRU_INK_MODELER_BRIDGE_H
 #define ECRU_INK_MODELER_BRIDGE_H
+#include "PDFPagePreservation.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

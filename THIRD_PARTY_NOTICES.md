@@ -12,6 +12,8 @@ Ecru 的本地 PDF 阅读、手写及文字预览使用以下组件。完整版�
 | markdown-it-texmath | [goessner/markdown-it-texmath](https://github.com/goessner/markdown-it-texmath) | [MIT](licenses/markdown-it-texmath-MIT.txt) |
 | KaTeX | [KaTeX/KaTeX](https://github.com/KaTeX/KaTeX)，0.16.22 | [MIT](licenses/KaTeX-MIT.txt) |
 | KaTeX 字体 | Design Science, Inc. / Khan Academy；原始字体与 Reserved Font Names | [SIL OFL 1.1](licenses/KaTeX-Fonts-OFL-1.1.txt) |
+| QPDF | [qpdf/qpdf](https://github.com/qpdf/qpdf)，12.4.2 / 4eba95899886e851cc41d76886483b347612f2a8 | [Apache-2.0](Resources/Licenses/QPDF-Apache-2.0.txt)；[完整 NOTICE](Resources/Licenses/QPDF-NOTICE.txt) |
+| libjpeg-turbo | [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo)，3.2.0 / c85e6b905bf237038faa936dab160ebfc5da0344 | [IJG / BSD](Resources/Licenses/libjpeg-turbo-LICENSE.txt)；[README.ijg](Resources/Licenses/libjpeg-turbo-README.ijg.txt) |
 
 [完整版权与集成声明](licenses/THIRD-PARTY-NOTICES.txt)
 
@@ -20,3 +22,5 @@ Google Ink 仅调整 brush_paint.cc 两个私有版本查询辅助函数的命�
 Google Ink、Google Ink Stroke Modeler 与 Abseil 的指定上游版本均未发现独立 NOTICE 文件，保留原 LICENSE，并汇总版权声明。KaTeX 字体按其字体元数据中的 SIL Open Font License 分发，保留字体名称、版权声明与完整许可。
 
 构建配置下载的 googletest 不会随 App 分发。Apple 系统框架由 macOS 提供。以上项目及其权利人不为 Ecru 背书，第三方许可证只适用于各自组件；Ecru 第一方源码采用 Apache-2.0，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+
+QPDF 与 libjpeg-turbo 固定版本并分别编译两种架构。QPDF 仅用于保留原 PDF 页绘图流和资源，避免较旧 PDFKit 保存批注时重写底图；完整 Apache 许可及其嵌入密码实现声明随包保留。libjpeg-turbo 保留完整许可与版权声明，仅链接 libjpeg API 静态库；This software is based in part on the work of the Independent JPEG Group. 系统 zlib 由 macOS 提供。

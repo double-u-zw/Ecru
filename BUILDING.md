@@ -28,10 +28,10 @@ To build just one architecture, set `ECRU_ARCH=arm64` or `ECRU_ARCH=x86_64`.
 Cross-architecture builds of the full Universal App require no emulator.
 Running x86_64 tests on Apple Silicon requires Rosetta 2.
 
-The first build downloads pinned Abseil and build-time GoogleTest configuration
+The first build downloads pinned Abseil, QPDF 12.4.2, libjpeg-turbo 3.2.0 and build-time GoogleTest configuration
 from their public upstream repositories. Google Ink, Stroke Modeler and the
 perfect-freehand reference are vendored; offline preview assets are in Resources.
-There is no runtime network dependency. Do not use paths outside the checkout.
+QPDF uses its native crypto backend and macOS system zlib; OpenSSL, GnuTLS and Homebrew native libraries are not required. There is no runtime network dependency. Do not use paths outside the checkout.
 
 ## Tests
 

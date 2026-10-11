@@ -29,10 +29,10 @@ python3 Tests/InputBoundaryTests.py
 for task_test in Ink Storage Annotation InkNatural InkDamage; do
   case "$task_test" in
     Ink) task_sources=(Sources/InkCore.swift Tests/InkLegacyReference.swift);;
-    Storage|Annotation) task_sources=(Sources/InkCore.swift Sources/DocumentSession.swift Sources/AnnotationModel.swift);;
+    Storage|Annotation) task_sources=(Sources/InkCore.swift Sources/DocumentSession.swift Sources/PDFPagePreservation.swift Sources/AnnotationModel.swift);;
     *) task_sources=(Sources/InkCore.swift);;
   esac
-  xcrun swiftc "${flags[@]}" "${task_sources[@]}" "Tests/${task_test}Tests.swift" -o ".build/test-binaries/${task_test}Tests" -framework AppKit -framework PDFKit
+  xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" "${task_sources[@]}" "Tests/${task_test}Tests.swift" -o ".build/test-binaries/${task_test}Tests" -framework AppKit -framework PDFKit
   ".build/test-binaries/${task_test}Tests" "$PWD/.build/test-binaries/ink-roundtrip.pdf"
 done
 node Tests/PreviewTests.js

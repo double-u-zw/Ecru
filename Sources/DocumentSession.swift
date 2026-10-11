@@ -403,6 +403,11 @@ final class DocumentSession {
         return exported
     }
 
+    private func portableData(_ exported: PDFDocument?) -> Data? {
+        guard let bytes = exported?.dataRepresentation() else { return nil }
+        return PDFPagePreservation.preserve(backingData, in: bytes)
+    }
+
     @discardableResult
     func beginAction(_ label: String) -> Bool {
         precondition(Thread.isMainThread)
@@ -484,7 +489,7 @@ final class DocumentSession {
 
     private func snapshot() -> Snapshot? {
         let exported = portableDocument()
-        let bytes = snapshotDataProvider.map { $0() } ?? exported?.dataRepresentation()
+        let bytes = snapshotDataProvider.map { $0() } ?? portableData(exported)
         guard let data = bytes else {
             lastError = DocumentSessionError.serialize
             onChange?()
@@ -523,7 +528,7 @@ final class DocumentSession {
         guard backingPages.count == document.pageCount && backingPages.enumerated().allSatisfy({ document.page(at: $0.offset) === $0.element }) else {
             failSave(DocumentSessionError.validation("原始页面内容或图像资源的页面身份改变"), completion: completion); return
         }
-        guard let exported = portableDocument(), let bytes = exported.dataRepresentation() else { failSave(DocumentSessionError.serialize, completion: completion); return }
+        guard let exported = portableDocument(), let bytes = portableData(exported) else { failSave(DocumentSessionError.serialize, completion: completion); return }
         let expectedManifest = try? AnnotationPDF.encode(annotations)
         let capturedRevision = revision
         let fidelity = PDFFidelity(exported)
@@ -711,7 +716,7 @@ final class DocumentSession {
     func checkpointRecovery(captured: Data? = nil) {
         recoveryWriter.cancelAndWait()
         if !isModified { discardRecovery(); return }
-        let generated = recoveryDataProvider.map { $0() } ?? captured ?? portableDocument()?.dataRepresentation()
+        let generated = recoveryDataProvider.map { $0() } ?? captured ?? portableData(portableDocument())
         guard let bytes = generated else {
             let pending = pendingOldRecoveryURLs.isEmpty ? "" : "；旧路径的恢复记录也尚未清理"
             lastError = DocumentSessionError.io("自动恢复数据生成失败，当前内容仍在窗口\(pending)")

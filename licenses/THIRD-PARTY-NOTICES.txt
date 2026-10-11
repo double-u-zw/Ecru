@@ -60,3 +60,21 @@ documentation and project artwork are licensed under Apache License 2.0.
 See Ecru-Apache-2.0.txt and Ecru-NOTICE.txt. Private development history is excluded.
 Googletest is a build-time configuration dependency and is not shipped.
 Apple frameworks are provided by macOS and are not redistributed in this app.
+
+QPDF 12.4.2 — Apache License 2.0
+Copyright (c) 2005-2021 Jay Berkenbilt, 2022-2026 Jay Berkenbilt and Manfred Holger.
+https://github.com/qpdf/qpdf
+Revision: 4eba95899886e851cc41d76886483b347612f2a8
+Statically linked, unmodified. Preserves original PDF page streams and resources
+when PDFKit serializes annotations. Native crypto includes public-domain Rijndael
+and MIT-licensed sphlib SHA-2, preserved in QPDF-NOTICE.txt.
+Licenses: QPDF-Apache-2.0.txt, QPDF-NOTICE.txt
+QPDF's qtest is a build-time Artistic-2.0 component, not shipped in Ecru.
+
+libjpeg-turbo 3.2.0 — IJG and BSD-style licenses
+https://github.com/libjpeg-turbo/libjpeg-turbo
+Revision: c85e6b905bf237038faa936dab160ebfc5da0344
+Unmodified static libjpeg API dependency of QPDF; TurboJPEG API, CLI and SIMD
+are not linked. This software is based in part on the work of the Independent JPEG Group.
+Complete notices: libjpeg-turbo-LICENSE.txt, libjpeg-turbo-README.ijg.txt
+System zlib is dynamically provided by macOS and is not redistributed.

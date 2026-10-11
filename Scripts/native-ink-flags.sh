@@ -34,4 +34,4 @@ with (cache/'build.lock').open('w') as lock:
   os.replace(temporary,library)
   stamp.write_text(key+'\n')
 PY
-ecru_ink_flags=(-import-objc-header "$PWD/Sources/Native/InkModelerBridge.h" "$ecru_native_cache/libEcruInkCombined.a" -lc++)
+ecru_ink_flags=(-import-objc-header "$PWD/Sources/Native/InkModelerBridge.h" "$ecru_native_cache/libEcruInkCombined.a" -lc++ -lz)

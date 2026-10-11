@@ -18,3 +18,5 @@ light/dark windows and multiple sizes. Intel is initially checked through Rosett
 physical Intel hardware, macOS 13 and mixed-DPI monitors remain human checks.
 This candidate is ad-hoc signed and not notarized. No automatic update or OCR.
 UI acceptance is required before publishing the beta.2 Release.
+
+- 保存时保留原 PDF 页面绘图流和字体/图片资源，兼容较旧 macOS 的 PDFKit 批注导出。

@@ -23,12 +23,6 @@ jobs:
           node-version: '22'
       - name: Install test dependencies
         run: python3 -m pip install -r Tests/requirements.txt
-      - name: Diagnose PDF save compatibility before native compilation
-        run: |
-          python3 Scripts/make_fixture.py
-          mkdir -p .build/storage-compatibility
-          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx13.0" Sources/InkCore.swift Sources/DocumentSession.swift Sources/AnnotationModel.swift Tests/StorageTests.swift -o .build/storage-compatibility/StorageTests -framework AppKit -framework PDFKit
-          ECRU_TEST_DIAGNOSTICS=1 .build/storage-compatibility/StorageTests
       - name: Build Universal 2
         run: ECRU_RELEASE=1 zsh Scripts/build.sh
       - name: Core tests on the runner architecture
