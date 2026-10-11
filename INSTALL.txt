@@ -1,32 +1,18 @@
-Ecru 0.5.0-beta.1 (12)
-Apple Silicon (M series) • macOS 13 Ventura or later
+Ecru 0.5.0-beta.2-rc.1 (13) — Universal 2
+Apple Silicon and Intel • macOS 13 Ventura or later
 
-安装 / Installation
-1. 将 Ecru.app 拖到 Applications（应用程序）。
-   Drag Ecru.app to Applications.
-2. 推出磁盘映像，然后从“应用程序”启动 Ecru。
-   Eject the disk image, then launch Ecru from Applications.
-3. 本 Beta 尚未经过 Developer ID 签名或 Apple 公证。
-   如果首次启动被拦截：系统设置 → 隐私与安全性 → 仍要打开。
-   This Beta is ad-hoc signed and not Apple-notarized. If blocked on first launch:
-   System Settings → Privacy & Security → Open Anyway, then confirm.
-   Apple instructions: https://support.apple.com/en-us/102445
+Drag Ecru.app to Applications, eject the DMG, then launch Ecru.
+This candidate is ad-hoc signed and has not been Apple-notarized.
+If macOS blocks first launch: System Settings → Privacy & Security → Open Anyway.
+Apple instructions: https://support.apple.com/en-us/102445
+Do not disable Gatekeeper or System Integrity Protection.
 
-打开 PDF / Open a PDF: ⌘O
-保存 / Save: ⌘S    另存为 / Save As: ⇧⌘S
-撤销 / Undo: ⌘Z    重做 / Redo: ⇧⌘Z
-完整说明与限制 / Guide and limitations:
-https://github.com/double-u-zw/Ecru
-反馈 / Feedback: https://github.com/double-u-zw/Ecru/issues
+打开 PDF ⌘O · 保存 ⌘S · 另存为 ⇧⌘S · 撤销 ⌘Z · 重做 ⇧⌘Z
+Guide: https://github.com/double-u-zw/Ecru
+Feedback: https://github.com/double-u-zw/Ecru/issues
+Verify downloads: shasum -a 256 -c SHA256SUMS.txt
 
-当前版本不提供 Intel 安装包，也不支持加密、签名或表单 PDF。
-Intel, encrypted/signed/form PDFs are not supported in this Beta.
-No OCR or automatic updates. The interface is primarily Chinese.
-
-无需关闭 Gatekeeper 或系统完整性保护。
-No need to disable Gatekeeper or System Integrity Protection.
-下载校验 / Checksum: download SHA256SUMS.txt alongside the DMG, then run
-shasum -a 256 -c SHA256SUMS.txt
-
-第三方完整许可证包含在 Licenses 文件夹和 App 内。
-Third-party license texts are included in Licenses and in the app.
+Encrypted, signed and form PDFs are not supported. No OCR or automatic updater.
+The interface is primarily Chinese. Intel support has initial Rosetta validation;
+physical Intel hardware and macOS 13 still need separate confirmation.
+First-party code: Apache-2.0. Complete licenses are included in the App and DMG.

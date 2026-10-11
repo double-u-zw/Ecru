@@ -1,0 +1,43 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "ink/strokes/internal/brush_tip_state.h"
+
+#include "ink/geometry/internal/lerp.h"
+
+namespace ink::strokes_internal {
+
+using ::ink::geometry_internal::Lerp;
+using ::ink::geometry_internal::NormalizedAngleLerp;
+
+BrushTipState BrushTipState::LerpShapeAttributes(const BrushTipState& a,
+                                                 const BrushTipState& b,
+                                                 float t) {
+  return {
+      .position = b.position,
+      .width = Lerp(a.width, b.width, t),
+      .height = Lerp(a.height, b.height, t),
+      .corner_rounding = Lerp(a.corner_rounding, b.corner_rounding, t),
+      .rotation = NormalizedAngleLerp(a.rotation, b.rotation, t),
+      .slant = Lerp(a.slant, b.slant, t),
+      .pinch = Lerp(a.pinch, b.pinch, t),
+      .paint_animation_progress_offset = b.paint_animation_progress_offset,
+      .hue_offset_in_full_turns = b.hue_offset_in_full_turns,
+      .chroma_multiplier = b.chroma_multiplier,
+      .lightness_offset = b.lightness_offset,
+      .opacity_multiplier = b.opacity_multiplier,
+  };
+}
+
+}  // namespace ink::strokes_internal

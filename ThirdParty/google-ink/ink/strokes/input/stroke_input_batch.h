@@ -1,0 +1,496 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef INK_STROKES_INPUT_STROKE_INPUT_BATCH_H_
+#define INK_STROKES_INPUT_STROKE_INPUT_BATCH_H_
+
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <limits>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/types/span.h"
+#include "ink/geometry/affine_transform.h"
+#include "ink/geometry/internal/modulo.h"
+#include "ink/strokes/input/stroke_input.h"
+#include "ink/types/duration.h"
+#include "ink/types/internal/copy_on_write.h"
+#include "ink/types/physical_distance.h"
+
+namespace ink {
+
+// A `StrokeInputBatch` allows for validating and storing one or more
+// consecutive inputs from all or part of a stroke.
+//
+// The type is more memory efficient than a large array of `StrokeInput`, as it
+// does not use extra memory when pressure, tilt, orientation, and/or barrel
+// twist values are not reported.
+//
+// The `StrokeInputBatch` implements copy-on-write, making it cheap to copy
+// independent of batch size. This design supports efficiently sharing the same
+// input data between multiple `Stroke` objects.
+//
+// Validation requirements:
+//
+//   1) All floating point values are required to be finite and the format of
+//      all inputs added to the same batch must be consistent. This means all
+//      inputs added to a batch should report the same optional properties, and
+//      have the same value of `StrokeInput::tool_type` and of
+//      `StrokeInput::stroke_unit_length`. For example, if the first input
+//      reports a value for pressure then all subsequent inputs must also report
+//      pressure.
+//   2) The sequence of inputs in the batch must not contain repeated x-y-t
+//      triplets, and the elapsed time values must be non-decreasing.
+//   3) Pressure, tilt, orientation, and barrel twist should either be set to
+//      corresponding sentinel values indicating their absence, or be in the
+//      ranges of [0, 1], [0, π/2], [0, 2π], and [0, 2π] respectively.
+//   4) `StrokeInput::tool_type` must be one of the enumerator values.
+//
+class StrokeInputBatch {
+ public:
+  // A constant iterator type to enable range-based for loop iteration. See the
+  // complete class definition below for details.
+  //
+  // NOTE: Calling any non-const member function of `StrokeInputBatch` should be
+  // assumed to cause all iterators to be invalidated.
+  class ConstIterator;
+  using value_type = StrokeInput;
+
+  // Performs validation on `inputs` and returns the resulting batch or error.
+  static absl::StatusOr<StrokeInputBatch> Create(
+      absl::Span<const StrokeInput> inputs, uint32_t noise_seed = 0,
+      float base_paint_animation_phase = 0.0f);
+
+  StrokeInputBatch() = default;
+  StrokeInputBatch(const StrokeInputBatch&) = default;
+  StrokeInputBatch(StrokeInputBatch&&) = default;
+  StrokeInputBatch& operator=(const StrokeInputBatch&) = default;
+  StrokeInputBatch& operator=(StrokeInputBatch&&) = default;
+  ~StrokeInputBatch() = default;
+
+  ConstIterator begin() const;
+  ConstIterator end() const;
+
+  // Erases all inputs from the batch, and resets both the noise seed and base
+  // paint animation phase to their default values of zero.
+  //
+  // This is functionally equivalent to `*this = StrokeInputBatch()`, except
+  // that it will reuse existing allocations when possible.
+  void Clear();
+
+  int Size() const;
+  bool IsEmpty() const;
+
+  // Returns a copy of this `StrokeInputBatch` that initially has unique
+  // ownership of its memory. See comment above regarding copy-on-write
+  // behavior.
+  //
+  // Usually there is no need to use this method, since `StrokeInputBatch`'s
+  // copy-on-write semantics make normal copies cheap. However, there are a
+  // couple potential reasons to use this method in certain situations:
+  //   1. The new copy returned from this method will not have any excess
+  //      capcity, so using this method can save memory in the long run if the
+  //      new copy isn't going to be mutated, and the original copy will later
+  //      be thrown away or its storage reused.
+  //   2. If one or both copies will later be mutated, making a normal copy
+  //      would mean that that later mutation would require a new allocation
+  //      anyway.  Using `MakeDeepCopy` allows for more explicit control over
+  //      when that allocation happens.
+  // For both of these reasons, `InProgressStroke` objects (which are often
+  // reused) use this method when copying input data into completed `Stroke`s.
+  StrokeInputBatch MakeDeepCopy() const;
+
+  // Validates and sets the value of the i-th input.
+  //
+  // In the special case that this will overwrite the only held `StrokeInput`,
+  // it is valid for the format of `input` to be different from the currently
+  // held value. Regardless, in all cases, the noise seed and base paint
+  // animation phase will not be modified.
+  //
+  // Returns an error and does not modify the batch if validation fails.
+  absl::Status Set(int i, const StrokeInput& input);
+
+  // Returns the `StrokeInput` at index `i`. CHECK-fails if `i < 0` or if `i >=
+  // Size()`.
+  StrokeInput Get(int i) const;
+
+  // Returns the first `StrokeInput` in the batch. CHECK-fails if the batch is
+  // empty.
+  StrokeInput First() const;
+
+  // Returns the last `StrokeInput` in the batch. CHECK-fails if the batch is
+  // empty.
+  StrokeInput Last() const;
+
+  // Reserves space for at least `size` inputs, using the format of
+  // `sample_input`.
+  void Reserve(int size, const StrokeInput& sample_input);
+
+  // Validates and appends a new `input`.
+  //
+  // Returns an error and does not modify the batch if validation fails.
+  absl::Status Append(const StrokeInput& input);
+
+  // Validates and appends a sequence of `inputs`. This batch's noise seed and
+  // base paint animation phase are left unchanged, even when appending another
+  // batch with a different noise seed and/or base paint animation phase.
+  //
+  // Returns an error and does not modify the batch if validation fails.
+  absl::Status Append(absl::Span<const StrokeInput> inputs);
+  absl::Status Append(const StrokeInputBatch& inputs);
+
+  // Validates and appends the range of `inputs` from `start_index` (inclusive)
+  // to `end_index` (exclusive).
+  absl::Status Append(const StrokeInputBatch& inputs, int start_index,
+                      int end_index);
+
+  // Erases `count` elements beginning at `start`.
+  //
+  // If `start` + `count` is greater than `Size()`, then all elements from
+  // `start` until the end of the input batch are erased. CHECK-fails if `start`
+  // is not less than or equal to `Size()`.
+  //
+  // This will not change the noise seed or base paint animation phase
+  // associated with this input batch, even if all inputs are erased.  If you
+  // wish to reset those values as well, consider using `Clear()`.
+  void Erase(int start, int count = std::numeric_limits<int>::max());
+
+  // Returns the current input tool type or `StrokeInput::ToolType::kUnknown`
+  // if the batch is empty.
+  StrokeInput::ToolType GetToolType() const;
+
+  // Returns the physical distance that the pointer traveled in order to produce
+  // an input motion of one stroke unit. For stylus/touch, this is the
+  // real-world distance that the stylus/fingertip moved in physical space; for
+  // mouse, this is the visual distance that the mouse pointer traveled along
+  // the surface of the display.
+  //
+  // A value of `std::nullopt` indicates that the relationship between stroke
+  // space and physical space is unknown or ill-defined. Otherwise, the value
+  // will be finite and strictly positive.
+  std::optional<PhysicalDistance> GetStrokeUnitLength() const;
+
+  // Returns the duration between the first and last input.
+  Duration32 GetDuration() const;
+
+  bool HasStrokeUnitLength() const;
+  bool HasPressure() const;
+  bool HasTilt() const;
+  bool HasOrientation() const;
+  bool HasBarrelTwist() const;
+
+  // Returns the seed value that should be used for seeding any noise generators
+  // for brush behaviors when a full stroke is regenerated with this input
+  // batch. If no seed value has yet been set for this input batch, returns the
+  // default seed of zero.
+  uint32_t GetNoiseSeed() const;
+
+  // Sets the per-stroke seed value that should be used when regenerating a
+  // stroke from this input batch.
+  void SetNoiseSeed(uint32_t seed);
+
+  // A [0, 1) value that will determine the stroke's overall animation progress
+  // at some arbitrary zero clock state, so that different strokes can be
+  // animated correctly relative to each other.
+  float GetBasePaintAnimationPhase() const;
+
+  // Sets the [0, 1) animation progress value that the stroke should have at
+  // clock state zero. For newly-drawn strokes, this value should generally be
+  // chosen such that the stroke will be at animation progress 0 at the current
+  // clock state for the first input of the stroke.
+  //
+  // Note that it doesn't especially matter what clock is being used by the
+  // environment creating the stroke, since this value only matters for
+  // capturing the relative animation phases between multiple strokes created in
+  // the same environment: if such strokes are serialized and later loaded in a
+  // different environment with a different clock that uses a different zero
+  // point, they will still maintain the same relative phases.
+  void SetBasePaintAnimationPhase(float phase);
+
+  // Which properties of the stroke should be preserved over transforms.
+  enum class TransformInvariant {
+    kPreserveDuration = 0,
+    //  `kPreserveVelocity` will be added once it's supported
+  };
+
+  // Applies the transformation in the `transform` to the points in the
+  // `StrokeInputBatch` in-place.
+  //
+  // If `invariant` == `kPreserveDuration` the transformed points will have the
+  // original `elapsed_time` for each `StrokeInput` in the `StrokeInputBatch`.
+  // If `invariant` == `kPreserveVelocity` each `StrokeInput::elapsed_time` will
+  // be adjusted to the value it would be if the transformed inputs had the same
+  // velocity, resulting in a shorter or longer overall duration.
+  // TODO: b/278536966 - Add support for `kPreserveVelocity`
+  void Transform(
+      const AffineTransform& transform,
+      TransformInvariant invariant = TransformInvariant::kPreserveDuration);
+
+  template <typename Sink>
+  friend void AbslStringify(Sink& sink, const StrokeInputBatch& batch) {
+    sink.Append(batch.ToFormattedString());
+  }
+
+  bool operator==(const StrokeInputBatch& rhs) const = default;
+
+  template <typename H>
+  friend H AbslHashValue(H h, const StrokeInputBatch& batch) {
+    h = H::combine(std::move(h), batch.size_, batch.tool_type_,
+                   batch.stroke_unit_length_, batch.noise_seed_,
+                   batch.base_paint_animation_phase_, batch.has_pressure_,
+                   batch.has_tilt_, batch.has_orientation_,
+                   batch.has_barrel_twist_, batch.data_);
+    return h;
+  }
+
+ private:
+  absl::Status PrepareForAppend(const StrokeInput& first_new_input);
+
+  void DebugCheckSizeAndFormatAreConsistent() const {
+    ABSL_DCHECK_EQ(size_ * FloatsPerInput(),
+                   data_.HasValue() ? static_cast<int>(data_->size()) : 0);
+  }
+
+  // The following helpers return the number of floats needed to store the
+  // numeric properties of a single `StrokeInput` when the missing optional
+  // properties are skipped instead of being stored as sentinel values.
+  //
+  // The returned value will be at least 3, the case when storing only position
+  // and elapsed time. It will be no more than 7, which is the number required
+  // to store an input with all of pressure, tilt, orientation, and barrel twist
+  // present.
+  static int FloatsPerInput(bool has_pressure, bool has_tilt,
+                            bool has_orientation, bool has_barrel_twist);
+  static int FloatsPerInput(const StrokeInput& input);
+  int FloatsPerInput() const;
+
+  // Transforms the input points in place, applying the `AffineTransform` while
+  // keeping the stroke total elapsed time the same.
+  void TransformPreservingDuration(const AffineTransform& transform);
+
+  // Erases all inputs from the batch, and clears the inline member variables
+  // that store the "format" of the inputs (i.e. tool type and whether pressure,
+  // tilt, orientation, and barrel twist are present), but does *not* reset
+  // either the noise seed nor the base paint animation phase.
+  void ClearInputs();
+
+  // Updates the inline member variables that store the "format" of the inputs
+  // (i.e. tool type and whether pressure, tilt, orientation, and barrel twist
+  // are present).  This function should only be called when the batch is empty.
+  void SetInlineFormatMetadata(const StrokeInput& input);
+
+  // Implementation helper for AbslStringify.
+  std::string ToFormattedString() const;
+
+  // Input property data stored as raw floats, using `FloatsPerInput()` values
+  // per `StrokeInput`.
+  //
+  // Values for each input are stored at adjacent indices in the following
+  // order:
+  //   * position x
+  //   * position y
+  //   * elapsed time in seconds
+  //   * pressure, only if `has_pressure_`
+  //   * tilt in radians, only if `has_tilt_`
+  //   * orientation in radians, only if `has_orientation_`
+  //   * barrel_twist in radians, only if `has_barrel_twist_`
+  //
+  // By using `CopyOnWrite<T>` with a vector rather than `CopyOnWrite<T[]>`, we
+  // trade a pointer indirection for memory management done by std::vector.
+  // Since we will be growing the vector as we collect more inputs, this is most
+  // likely worth it.
+  ink_internal::CopyOnWrite<std::vector<float>> data_;
+
+  // Store metadata inline so that simple getters do not need an extra branch
+  // and pointer indirection:
+  int size_ = 0;
+  StrokeInput::ToolType tool_type_ = StrokeInput::ToolType::kUnknown;
+  PhysicalDistance stroke_unit_length_ = StrokeInput::kNoStrokeUnitLength;
+  uint32_t noise_seed_ = 0;
+  float base_paint_animation_phase_ = 0.0f;
+  bool has_pressure_ = false;
+  bool has_tilt_ = false;
+  bool has_orientation_ = false;
+  bool has_barrel_twist_ = false;
+};
+
+// Constant iterator type conforms to the named requirements of
+// LegacyInputIterator
+// (https://en.cppreference.com/w/cpp/named_req/InputIterator).
+//
+// Note that this is a proxy iterator. The value does not live in the
+// `StrokeInputBatch`, but within the iterator, and so its lifetime is tied to
+// the lifetime of the iterator itself.
+//
+// To help prevent lifetime issues, `reference` is an alias to the `const
+// value_type`, not a true reference. This allows the return value of
+// `operator*()` to partake in reference lifetime extension in order to
+//   a) outlive the iterator
+//   b) be unaffected by subsequent calls to e.g. `operator++()`
+class StrokeInputBatch::ConstIterator {
+ public:
+  using value_type = StrokeInput;
+  using pointer = const value_type*;
+  using reference = const value_type;
+  using iterator_category = std::input_iterator_tag;
+  using difference_type = std::ptrdiff_t;
+
+  ConstIterator() = default;
+
+  // NOLINTNEXTLINE - Suppress ClangTidy const-return-type.
+  reference operator*() const;
+  pointer operator->() const;
+  ConstIterator& operator++();
+  ConstIterator operator++(int);
+
+  // Not default because it ignores the cached value_.
+  friend bool operator==(const ConstIterator& lhs, const ConstIterator& rhs);
+
+ private:
+  friend class StrokeInputBatch;
+
+  ConstIterator(const StrokeInputBatch& inputs, int index) {
+    if (!inputs.data_.HasValue()) return;
+    batch_subdata_ = absl::MakeSpan(inputs.data_.Value())
+                         .subspan(index * inputs.FloatsPerInput());
+    if (index < inputs.Size()) value_ = inputs.Get(index);
+  }
+
+  // Subspan of batch `data_` from the current position of the iterator to the
+  // end of the container.
+  absl::Span<const float> batch_subdata_;
+
+  // In order to have operator-> work in a sensible manner, it needs to return
+  // a pointer to the value type. To accomplish this, since the value type is
+  // not the same as the underlying stored type, we maintain a cached copy of
+  // the value so that we may return a pointer to it.
+  StrokeInput value_;
+};
+
+// ---------------------------------------------------------------------------
+//                     Implementation details below
+
+inline int StrokeInputBatch::Size() const {
+  DebugCheckSizeAndFormatAreConsistent();
+  return size_;
+}
+
+inline bool StrokeInputBatch::IsEmpty() const { return Size() == 0; }
+
+inline StrokeInput StrokeInputBatch::First() const { return Get(0); }
+
+inline StrokeInput StrokeInputBatch::Last() const { return Get(Size() - 1); }
+
+inline StrokeInputBatch::ConstIterator StrokeInputBatch::begin() const {
+  return StrokeInputBatch::ConstIterator(*this, 0);
+}
+
+inline StrokeInputBatch::ConstIterator StrokeInputBatch::end() const {
+  return StrokeInputBatch::ConstIterator(*this, Size());
+}
+
+inline StrokeInput::ToolType StrokeInputBatch::GetToolType() const {
+  return tool_type_;
+}
+
+inline std::optional<PhysicalDistance> StrokeInputBatch::GetStrokeUnitLength()
+    const {
+  if (!HasStrokeUnitLength()) return std::nullopt;
+  return stroke_unit_length_;
+}
+
+inline uint32_t StrokeInputBatch::GetNoiseSeed() const { return noise_seed_; }
+
+inline void StrokeInputBatch::SetNoiseSeed(uint32_t seed) {
+  noise_seed_ = seed;
+}
+
+inline float StrokeInputBatch::GetBasePaintAnimationPhase() const {
+  return base_paint_animation_phase_;
+}
+
+inline void StrokeInputBatch::SetBasePaintAnimationPhase(float phase) {
+  base_paint_animation_phase_ = geometry_internal::FloatModulo(phase, 1.0f);
+}
+
+inline bool StrokeInputBatch::HasStrokeUnitLength() const {
+  return stroke_unit_length_ != StrokeInput::kNoStrokeUnitLength;
+}
+
+inline bool StrokeInputBatch::HasPressure() const {
+  DebugCheckSizeAndFormatAreConsistent();
+  return has_pressure_;
+}
+
+inline bool StrokeInputBatch::HasTilt() const {
+  DebugCheckSizeAndFormatAreConsistent();
+  return has_tilt_;
+}
+
+inline bool StrokeInputBatch::HasOrientation() const {
+  DebugCheckSizeAndFormatAreConsistent();
+  return has_orientation_;
+}
+
+inline bool StrokeInputBatch::HasBarrelTwist() const {
+  DebugCheckSizeAndFormatAreConsistent();
+  return has_barrel_twist_;
+}
+
+inline StrokeInputBatch::ConstIterator::pointer
+StrokeInputBatch::ConstIterator::operator->() const {
+  ABSL_DCHECK(!batch_subdata_.empty())
+      << "Attempted to dereference singular or past-the-end iterator";
+  return &value_;
+}
+
+// NOLINTNEXTLINE - Suppress ClangTidy const-return-type.
+inline StrokeInputBatch::ConstIterator::reference
+StrokeInputBatch::ConstIterator::operator*() const {
+  return *operator->();
+}
+
+inline bool operator==(const StrokeInputBatch::ConstIterator& lhs,
+                       const StrokeInputBatch::ConstIterator& rhs) {
+  return lhs.batch_subdata_.data() == rhs.batch_subdata_.data();
+}
+
+inline int StrokeInputBatch::FloatsPerInput(bool has_pressure, bool has_tilt,
+                                            bool has_orientation,
+                                            bool has_barrel_twist) {
+  // Minimum of 3 floats (two for position and one elapsed time) plus one for
+  // each present optional property:
+  return 3 + static_cast<int>(has_pressure) + static_cast<int>(has_tilt) +
+         static_cast<int>(has_orientation) + static_cast<int>(has_barrel_twist);
+}
+
+inline int StrokeInputBatch::FloatsPerInput(const StrokeInput& input) {
+  return FloatsPerInput(input.HasPressure(), input.HasTilt(),
+                        input.HasOrientation(), input.HasBarrelTwist());
+}
+
+inline int StrokeInputBatch::FloatsPerInput() const {
+  return FloatsPerInput(has_pressure_, has_tilt_, has_orientation_,
+                        has_barrel_twist_);
+}
+
+}  // namespace ink
+
+#endif  // INK_STROKES_INPUT_STROKE_INPUT_BATCH_H_

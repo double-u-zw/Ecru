@@ -1,0 +1,554 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "ink/strokes/internal/stroke_input_modeler/sliding_window_input_modeler.h"
+
+#include <algorithm>
+#include <cmath>
+#include <vector>
+
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "ink/geometry/angle.h"
+#include "ink/geometry/distance.h"
+#include "ink/geometry/internal/lerp.h"
+#include "ink/geometry/point.h"
+#include "ink/geometry/vec.h"
+#include "ink/strokes/input/stroke_input.h"
+#include "ink/strokes/input/stroke_input_batch.h"
+#include "ink/strokes/internal/modeled_stroke_input.h"
+#include "ink/types/duration.h"
+
+namespace ink::strokes_internal {
+namespace {
+
+/// When upsampling, don't subdivide the gap between raw inputs into more than
+/// this many segments. The value chosen here is mostly arbitrary, but should be
+/// (1) high enough that we shouldn't get anywhere near this limit in typical
+/// cases (e.g. upsampling 30 Hz input to 180 Hz requires only 6 divisions), and
+/// (2) low enough to prevent memory usage from completely exploding in unusual
+/// cases (e.g. long gaps between two inputs due to, say, the system clock
+/// updating in the middle of a stroke).
+constexpr int kMaxUpsampleDivisions = 100;
+
+// Holds time-weighted sums of `StrokeInput` fields, for computing average
+// values over a window of time.
+struct StrokeInputIntegrals {
+  Vec position_dt;
+  float pressure_dt = 0;
+  Angle tilt_dt;
+  // For orientation and barrel twist, we ultimately want a circular mean [1] of
+  // the inputs being averaged together. So rather than summing up
+  // orientation/twist angles, we sum up unit vectors in those directions. At
+  // the end, we'll divide by time and take the direction of the resulting
+  // vector as our average orientation/twist direction.
+  //
+  // [1] See https://en.wikipedia.org/wiki/Circular_mean
+  Vec orientation_dt;
+  Vec barrel_twist_dt;
+};
+
+// Integrates each of position, pressure, tilt, orientation, and barrel twist
+// over the elapsed time between the two inputs, assuming that each of those
+// quantities vary linearly between the two inputs, and add the totals to
+// `integrals`.
+void Integrate(StrokeInputIntegrals& integrals, const StrokeInput& input1,
+               const StrokeInput& input2) {
+  ABSL_DCHECK_LE(input1.elapsed_time, input2.elapsed_time);
+  float dt = (input2.elapsed_time - input1.elapsed_time).ToSeconds();
+  // For each of position/pressure/tilt/orientation/twist, we are computing the
+  // integral with respect to time of the value as it changes from `input1` to
+  // `input2`. In the absence of better information, we just assume this change
+  // is linear. Therefore, we are effectively computing the area of a trapezoid
+  // with width `dt` and side heights `input1.foo` and `input2.foo`. That area
+  // is equal to the width (that is, `dt`) times the average of the two side
+  // heights. See https://en.wikipedia.org/wiki/Trapezoidal_rule.
+  integrals.position_dt +=
+      dt * 0.5 * (input1.position.Offset() + input2.position.Offset());
+  if (input1.HasPressure()) {
+    ABSL_DCHECK(input2.HasPressure());
+    integrals.pressure_dt += dt * 0.5 * (input1.pressure + input2.pressure);
+  }
+  if (input1.HasTilt()) {
+    ABSL_DCHECK(input2.HasTilt());
+    integrals.tilt_dt += dt * 0.5 * (input1.tilt + input2.tilt);
+  }
+  if (input1.HasOrientation()) {
+    ABSL_DCHECK(input2.HasOrientation());
+    integrals.orientation_dt += dt * 0.5 *
+                                (Vec::UnitVecWithDirection(input1.orientation) +
+                                 Vec::UnitVecWithDirection(input2.orientation));
+  }
+  if (input1.HasBarrelTwist()) {
+    ABSL_DCHECK(input2.HasBarrelTwist());
+    integrals.barrel_twist_dt +=
+        dt * 0.5 *
+        (Vec::UnitVecWithDirection(input1.barrel_twist) +
+         Vec::UnitVecWithDirection(input2.barrel_twist));
+  }
+}
+
+// Given two consecutive stroke inputs and a timestamp that falls between them,
+// produces an interpolated stroke input.
+StrokeInput InterpolateStrokeInput(const StrokeInput& input1,
+                                   const StrokeInput& input2,
+                                   Duration32 elapsed_time) {
+  ABSL_DCHECK_LE(input1.elapsed_time, elapsed_time);
+  ABSL_DCHECK_LE(elapsed_time, input2.elapsed_time);
+  float lerp_ratio = geometry_internal::InverseLerp(
+      input1.elapsed_time.ToSeconds(), input2.elapsed_time.ToSeconds(),
+      elapsed_time.ToSeconds());
+  StrokeInput interpolated = {
+      .tool_type = input1.tool_type,
+      .position =
+          geometry_internal::Lerp(input1.position, input2.position, lerp_ratio),
+      .elapsed_time = elapsed_time,
+      .stroke_unit_length = input1.stroke_unit_length,
+  };
+  if (input1.HasPressure() && input2.HasPressure()) {
+    interpolated.pressure =
+        geometry_internal::Lerp(input1.pressure, input2.pressure, lerp_ratio);
+  }
+  if (input1.HasTilt() && input2.HasTilt()) {
+    interpolated.tilt =
+        geometry_internal::Lerp(input1.tilt, input2.tilt, lerp_ratio);
+  }
+  if (input1.HasOrientation() && input2.HasOrientation()) {
+    interpolated.orientation = geometry_internal::NormalizedAngleLerp(
+        input1.orientation, input2.orientation, lerp_ratio);
+  }
+  if (input1.HasBarrelTwist() && input2.HasBarrelTwist()) {
+    interpolated.barrel_twist = geometry_internal::NormalizedAngleLerp(
+        input1.barrel_twist, input2.barrel_twist, lerp_ratio);
+  }
+  return interpolated;
+}
+
+// Given two consecutive modeled stroke inputs and a timestamp that falls
+// between them, produces an interpolated field value.
+template <typename Value>
+Value InterpolateModeledValue(Value ModeledStrokeInput::* value_field,
+                              const ModeledStrokeInput& input1,
+                              const ModeledStrokeInput& input2,
+                              Duration32 elapsed_time) {
+  ABSL_DCHECK_LE(input1.elapsed_time, elapsed_time);
+  ABSL_DCHECK_LE(elapsed_time, input2.elapsed_time);
+  float lerp_ratio = geometry_internal::InverseLerp(
+      input1.elapsed_time.ToSeconds(), input2.elapsed_time.ToSeconds(),
+      elapsed_time.ToSeconds());
+  return geometry_internal::Lerp(input1.*value_field, input2.*value_field,
+                                 lerp_ratio);
+}
+
+// Compute `derivative_field` for each unstable input in `modeled_inputs` by
+// computing the average rate of change of the `value_field` over the sliding
+// window duration.
+template <typename Value>
+void ComputeDerivativeForUnstableInputs(
+    Value ModeledStrokeInput::* value_field,
+    Vec ModeledStrokeInput::* derivative_field,
+    std::vector<ModeledStrokeInput>& modeled_inputs, int stable_input_count,
+    Duration32 half_window_size) {
+  int num_modeled_inputs = modeled_inputs.size();
+  // As we iterate through `modeled_inputs`, keep track of the indices of the
+  // inputs at or just before/after the edges of the sliding window.  We will
+  // march these start/end indices forward as we iterate (in order to keep this
+  // loop O(n)).
+  int start_index = 0;
+  if (stable_input_count < num_modeled_inputs) {
+    Duration32 earliest_start =
+        modeled_inputs[stable_input_count].elapsed_time - half_window_size;
+    auto it = std::lower_bound(modeled_inputs.begin(), modeled_inputs.end(),
+                               earliest_start,
+                               [](const ModeledStrokeInput& m, Duration32 t) {
+                                 return m.elapsed_time < t;
+                               });
+    start_index =
+        std::max(0, static_cast<int>(it - modeled_inputs.begin()) - 1);
+  }
+  int end_index = stable_input_count;
+  for (int index = stable_input_count; index < num_modeled_inputs; ++index) {
+    ModeledStrokeInput& input = modeled_inputs[index];
+    // Timestamps for the start and end of the sliding window for this input
+    // (clamped to the start and end of all modeled inputs so far):
+    Duration32 start_time = std::max(input.elapsed_time - half_window_size,
+                                     modeled_inputs.front().elapsed_time);
+    Duration32 end_time = std::min(input.elapsed_time + half_window_size,
+                                   modeled_inputs.back().elapsed_time);
+    ABSL_DCHECK_LE(start_time, end_time);
+    // If the sliding window around this input has zero duration (e.g. because
+    // this is the only input so far), then just treat the derivative as zero
+    // for now (until we get more inputs later).
+    float dt = (end_time - start_time).ToSeconds();
+    if (dt == 0) {
+      input.*derivative_field = {0, 0};
+      continue;
+    }
+    // March `start_index` forward until it is at or just before `start_time`.
+    while (start_index + 1 < num_modeled_inputs &&
+           modeled_inputs[start_index + 1].elapsed_time <= start_time) {
+      ++start_index;
+    }
+    // March `end_index` forward until it is at or just after `end_time`.
+    while (end_index + 1 < num_modeled_inputs &&
+           modeled_inputs[end_index].elapsed_time <= end_time) {
+      ++end_index;
+    }
+    // Compute (interpolating as needed) the value of `value_field` at the start
+    // and end of the sliding window around this input.
+    Value start_value = start_index + 1 < num_modeled_inputs
+                            ? InterpolateModeledValue(
+                                  value_field, modeled_inputs[start_index],
+                                  modeled_inputs[start_index + 1], start_time)
+                            : modeled_inputs[start_index].*value_field;
+    Value end_value = end_index > 0
+                          ? InterpolateModeledValue(
+                                value_field, modeled_inputs[end_index - 1],
+                                modeled_inputs[end_index], end_time)
+                          : modeled_inputs[end_index].*value_field;
+    // Compute the average rate of change during the sliding window.
+    input.*derivative_field = (end_value - start_value) / dt;
+  }
+}
+
+float DistanceTraveled(const std::vector<ModeledStrokeInput>& modeled_inputs,
+                       Point position) {
+  if (modeled_inputs.empty()) {
+    return 0;
+  }
+  const ModeledStrokeInput& last_input = modeled_inputs.back();
+  return last_input.traveled_distance + Distance(last_input.position, position);
+}
+
+}  // namespace
+
+SlidingWindowInputModeler::SlidingWindowInputModeler(
+    Duration32 window_size, Duration32 upsampling_period,
+    float position_epsilon)
+    : half_window_size_(window_size * 0.5),
+      upsampling_period_(upsampling_period),
+      position_epsilon_(position_epsilon) {
+  ABSL_DCHECK_GE(window_size, Duration32::Zero());
+  ABSL_DCHECK_GT(upsampling_period_, Duration32::Zero());
+}
+
+void SlidingWindowInputModeler::ExtendStroke(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs,
+    const StrokeInputBatch& real_inputs,
+    const StrokeInputBatch& predicted_inputs) {
+  if (real_inputs.IsEmpty() && predicted_inputs.IsEmpty()) return;
+  EraseUnstableModeledInputs(state, modeled_inputs);
+  AppendRawInputsToQueue(state, real_inputs);
+  int raw_input_queue_real_input_count = raw_input_queue_.Size();
+  AppendRawInputsToQueue(state, predicted_inputs);
+  ModelUnstableInputs(state, modeled_inputs, raw_input_queue_real_input_count);
+  MarkStableModeledInputs(state, modeled_inputs);
+  TrimRawInputQueue(state, modeled_inputs, raw_input_queue_real_input_count);
+}
+
+void SlidingWindowInputModeler::EraseUnstableModeledInputs(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs) {
+  modeled_inputs.resize(state.stable_input_count);
+  state.real_input_count = state.stable_input_count;
+}
+
+void SlidingWindowInputModeler::AppendRawInputsToQueue(
+    InputModelerState& state, const StrokeInputBatch& raw_inputs) {
+  absl::Status status = raw_input_queue_.Append(raw_inputs);
+  ABSL_DCHECK_OK(status);
+}
+
+void SlidingWindowInputModeler::ModelUnstableInputPosition(
+    std::vector<ModeledStrokeInput>& modeled_inputs, Duration32 elapsed_time,
+    int& start_index, int& end_index) {
+  // If we're modeling an input, there must already be at least one raw input in
+  // the queue. (And therefore it's safe to call `raw_input_queue_.First()` and
+  // `raw_input_queue_.Last()` below.)
+  int raw_input_queue_size = raw_input_queue_.Size();
+  ABSL_DCHECK_GT(raw_input_queue_size, 0);
+
+  // Get the timestamps of the first and last raw inputs in the queue. The
+  // elapsed time of the new modeled input should always fall between these,
+  // because:
+  //   * We only model inputs at and in between the timestamps of raw inputs.
+  //   * We only model new inputs at timestamps *after* the last stable modeled
+  //     input, and we never eject raw inputs from the front of the queue whose
+  //     timestamps aren't *before* the last stable modeled input.
+  Duration32 first_raw_elapsed_time = raw_input_queue_.First().elapsed_time;
+  Duration32 last_raw_elapsed_time = raw_input_queue_.Last().elapsed_time;
+  ABSL_DCHECK_LE(first_raw_elapsed_time, elapsed_time);
+  ABSL_DCHECK_LE(elapsed_time, last_raw_elapsed_time);
+
+  // Normally we use a window extending `half_window_size_` on either side of
+  // `elapsed_time`, but bound it smaller than that if `elapsed_time` is nearer
+  // than that to `first_raw_elapsed_time` or to `last_raw_elapsed_time`.  This
+  // ensures several important properties:
+  //   * `window_start_time` and `window_end_time` below will stay within the
+  //     range [first_raw_elapsed_time, last_raw_elapsed_time].
+  //   * `elapsed_time` will fall in the center of the window (because we're
+  //     clamping `half_window_size` on both sides, instead of just clamping
+  //     `window_start_time` or just clamping `window_end_time`).
+  //   * If `elapsed_time` is at the very start or end of the finished stroke,
+  //     then `half_window_size` will be zero, and so the modeled input position
+  //     will exactly match the raw position. This ensures that the finished
+  //     stroke doesn't stop short of the final stylus position.
+  Duration32 half_window_size = std::min(
+      half_window_size_, std::min(elapsed_time - first_raw_elapsed_time,
+                                  last_raw_elapsed_time - elapsed_time));
+  ABSL_DCHECK_GE(half_window_size, Duration32::Zero());
+
+  // Compute the start and end timestamps of the window to average over when
+  // modeling this input. In theory, the clamping of `half_window_size` above
+  // should guarantee that the `elapsed_time ± half_window_size` interval falls
+  // within [first_raw_elapsed_time, last_raw_elapsed_time]. However, due to
+  // float rounding, we need to clamp again here to be sure (e.g. if
+  // `elapsed_time` is very very large).
+  Duration32 window_start_time =
+      std::max(elapsed_time - half_window_size, first_raw_elapsed_time);
+  Duration32 window_end_time =
+      std::min(elapsed_time + half_window_size, last_raw_elapsed_time);
+  ABSL_DCHECK_LE(first_raw_elapsed_time, window_start_time);
+  ABSL_DCHECK_LE(window_start_time, window_end_time);
+  ABSL_DCHECK_LE(window_end_time, last_raw_elapsed_time);
+
+  // March `start_index` forward until it is at or just before
+  // `window_start_time`.
+  while (start_index + 1 < raw_input_queue_size &&
+         raw_input_queue_.Get(start_index + 1).elapsed_time <=
+             window_start_time) {
+    ++start_index;
+  }
+  // March `end_index` forward until it is at or just after `window_end_time`.
+  while (end_index + 1 < raw_input_queue_size &&
+         raw_input_queue_.Get(end_index).elapsed_time <= window_end_time) {
+    ++end_index;
+  }
+
+  // If the time delta from `window_start_time` to `window_end_time` is zero,
+  // then we can't compute a meaningful average (since we'd be dividing by
+  // zero).
+  float dt = (window_end_time - window_start_time).ToSeconds();
+  if (dt <= 0) {
+    ABSL_DCHECK_EQ(window_start_time, window_end_time);
+    // Normally, this should only happen at the very start or end of the stroke,
+    // when `half_window_size` is zero, in which case `start_index ==
+    // end_index`, and we just use the corresponding raw input's attributes
+    // directly.
+    //
+    // Note, however, that in perverse cases (e.g. fuzz tests), it may be that
+    // we're in the middle of the stroke and `half_window_size` is nonzero, but
+    // `elapsed_time` is such a huge floating point number that `elapsed_time ±
+    // half_window_size` rounds to `elapsed_time`. When this happens, we'll
+    // still just use `raw_input_queue_.Get(start_index)`, and it'll have to be
+    // good enough.
+    StrokeInput input = raw_input_queue_.Get(start_index);
+    // To help with stroke modeling, we never want the input modeler to emit two
+    // consecutive modeled inputs within `position_epsilon_` of each other. Note
+    // that this can result in a situation where we remove an unstable modeled
+    // input when a new real raw input arrives, and then *not replace it*.
+    if (IsWithinEpsilonOfLastInput(modeled_inputs, input.position)) {
+      return;
+    }
+    // Use this raw input's attributes directly, except that we must use
+    // `elapsed_time` instead of `input.elapsed_time`. Normally, those should
+    // be the same, but in the perverse cases described above, they may not be.
+    modeled_inputs.push_back(ModeledStrokeInput{
+        .position = input.position,
+        .traveled_distance = DistanceTraveled(modeled_inputs, input.position),
+        .elapsed_time = elapsed_time,
+        .pressure = input.pressure,
+        .tilt = input.tilt,
+        .orientation = input.orientation,
+        .barrel_twist = input.barrel_twist,
+    });
+    return;
+  }
+
+  // Otherwise, if `dt` > 0, then `start_index` and `end_index` must be
+  // distinct, and therefore there is at least one raw-input-to-raw-input
+  // interval to integrate over.
+  ABSL_DCHECK_LT(start_index, end_index);
+
+  StrokeInputIntegrals integrals;
+  for (int i = start_index; i < end_index; ++i) {
+    StrokeInput input1 = raw_input_queue_.Get(i);
+    StrokeInput input2 = raw_input_queue_.Get(i + 1);
+    if (input1.elapsed_time < window_start_time) {
+      input1 = InterpolateStrokeInput(input1, input2, window_start_time);
+    }
+    if (input2.elapsed_time > window_end_time) {
+      input2 = InterpolateStrokeInput(input1, input2, window_end_time);
+    }
+    Integrate(integrals, input1, input2);
+  }
+
+  Point position = Point::FromOffset(integrals.position_dt / dt);
+  if (IsWithinEpsilonOfLastInput(modeled_inputs, position)) {
+    return;
+  }
+  ModeledStrokeInput modeled_input = {
+      .position = position,
+      .traveled_distance = DistanceTraveled(modeled_inputs, position),
+      .elapsed_time = elapsed_time,
+  };
+  if (raw_input_queue_.HasPressure()) {
+    modeled_input.pressure = integrals.pressure_dt / dt;
+  }
+  if (raw_input_queue_.HasTilt()) {
+    modeled_input.tilt = integrals.tilt_dt / dt;
+  }
+  if (raw_input_queue_.HasOrientation()) {
+    modeled_input.orientation =
+        (integrals.orientation_dt / dt).Direction().Normalized();
+  }
+  if (raw_input_queue_.HasBarrelTwist()) {
+    modeled_input.barrel_twist =
+        (integrals.barrel_twist_dt / dt).Direction().Normalized();
+  }
+  modeled_inputs.push_back(modeled_input);
+}
+
+void SlidingWindowInputModeler::ModelUnstableInputPositions(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs,
+    Duration32 real_input_cutoff) {
+  int raw_input_queue_size = raw_input_queue_.Size();
+  // As we iterate through timestamps for new modeled inputs, keep track of the
+  // indices of the raw inputs at or just before/after the edges of the sliding
+  // window.  We will march these start/end indices forward as we iterate (in
+  // order to keep this loop O(n)).
+  int start_index = 0;
+  int end_index = 0;
+  Duration32 prev_modeled_input_time = !modeled_inputs.empty()
+                                           ? modeled_inputs.back().elapsed_time
+                                           : -Duration32::Infinite();
+  for (int i = 0; i < raw_input_queue_size; ++i) {
+    Duration32 raw_input_time = raw_input_queue_.Get(i).elapsed_time;
+    if (raw_input_time <= prev_modeled_input_time) continue;
+
+    // If upsampling is necessary, generate intermediate modeled inputs between
+    // the last one and the one that corresponds to this raw input.
+    if (prev_modeled_input_time.IsFinite()) {
+      Duration32 dt = raw_input_time - prev_modeled_input_time;
+      int num_divisions =
+          static_cast<int>(std::min(std::ceil(dt / upsampling_period_),
+                                    static_cast<float>(kMaxUpsampleDivisions)));
+      if (num_divisions > 1) {
+        Duration32 period = dt / num_divisions;
+        for (int i = 1; i < num_divisions; ++i) {
+          Duration32 elapsed_time = prev_modeled_input_time + period * i;
+          ModelUnstableInputPosition(modeled_inputs, elapsed_time, start_index,
+                                     end_index);
+        }
+      }
+    }
+
+    // Always generate a modeled input at each raw input. (We don't have to
+    // choose to do this--we could instead just generate exactly one modeled
+    // input every `upsampling_period_` like clockwork--but it's a convenient
+    // way to stay more faithful to the raw input, and ensure that we capture
+    // the endpoints of the stroke correctly.)
+    Duration32 elapsed_time = raw_input_time;
+    ModelUnstableInputPosition(modeled_inputs, elapsed_time, start_index,
+                               end_index);
+    if (elapsed_time <= real_input_cutoff) {
+      state.real_input_count = modeled_inputs.size();
+    }
+    prev_modeled_input_time = elapsed_time;
+  }
+}
+
+void SlidingWindowInputModeler::ModelUnstableInputs(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs,
+    int raw_input_queue_real_input_count) {
+  ABSL_DCHECK_LE(raw_input_queue_real_input_count, raw_input_queue_.Size());
+  // Get the timestamp of the last real raw input so far, if any. Any modeled
+  // inputs generated up to and including this timestamp should be considered
+  // "real".
+  Duration32 real_input_cutoff =
+      raw_input_queue_real_input_count == 0
+          ? -Duration32::Infinite()
+          : raw_input_queue_.Get(raw_input_queue_real_input_count - 1)
+                .elapsed_time;
+  // Append new modeled inputs, without velocity or acceleration for now.
+  ModelUnstableInputPositions(state, modeled_inputs, real_input_cutoff);
+  // Now that we've modeled positions, we can use them to compute the velocity
+  // for each unstable input.
+  ComputeDerivativeForUnstableInputs(
+      &ModeledStrokeInput::position, &ModeledStrokeInput::velocity,
+      modeled_inputs, state.stable_input_count, half_window_size_);
+  // Now that we've modeled velocities, we can use them to compute the
+  // acceleration for each unstable input.
+  ComputeDerivativeForUnstableInputs(
+      &ModeledStrokeInput::velocity, &ModeledStrokeInput::acceleration,
+      modeled_inputs, state.stable_input_count, half_window_size_);
+}
+
+void SlidingWindowInputModeler::MarkStableModeledInputs(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs) {
+  ABSL_DCHECK_LE(state.stable_input_count, state.real_input_count);
+  ABSL_DCHECK_LE(state.real_input_count, modeled_inputs.size());
+
+  if (state.real_input_count == 0) return;
+  const ModeledStrokeInput& last_real_input =
+      modeled_inputs[state.real_input_count - 1];
+
+  while (state.stable_input_count < state.real_input_count &&
+         modeled_inputs[state.stable_input_count].elapsed_time +
+                 half_window_size_ <
+             last_real_input.elapsed_time) {
+    ++state.stable_input_count;
+  }
+}
+
+void SlidingWindowInputModeler::TrimRawInputQueue(
+    InputModelerState& state, std::vector<ModeledStrokeInput>& modeled_inputs,
+    int raw_input_queue_real_input_count) {
+  ABSL_DCHECK_LE(raw_input_queue_real_input_count, raw_input_queue_.Size());
+
+  // Erase all predicted raw stroke inputs from the end of the queue.
+  raw_input_queue_.Erase(raw_input_queue_real_input_count);
+
+  // We only want to trim real raw inputs that are older than the last stable
+  // modeled input. If there are no stable modeled inputs yet, then there's
+  // nothing to trim.
+  if (state.stable_input_count == 0) return;
+  const ModeledStrokeInput& last_stable_input =
+      modeled_inputs[state.stable_input_count - 1];
+
+  // We can trim a real raw input from the front of the queue if the next real
+  // raw input after it is already at or before the start of the last stable
+  // modeled input's window. (Any raw inputs farther in the future than that
+  // can't be trimmed because they might be needed for calculating new upsampled
+  // modeled inputs added just after the last stable modeled input).
+  Duration32 cutoff = last_stable_input.elapsed_time - half_window_size_;
+  int next_input_index = 1;
+  while (next_input_index < raw_input_queue_real_input_count &&
+         raw_input_queue_.Get(next_input_index).elapsed_time <= cutoff) {
+    ++next_input_index;
+  }
+  int num_sliding_inputs_to_trim = next_input_index - 1;
+  raw_input_queue_.Erase(0, num_sliding_inputs_to_trim);
+}
+
+bool SlidingWindowInputModeler::IsWithinEpsilonOfLastInput(
+    const std::vector<ModeledStrokeInput>& modeled_inputs,
+    Point position) const {
+  if (modeled_inputs.empty()) {
+    return false;
+  }
+  const ModeledStrokeInput& last_input = modeled_inputs.back();
+  return Distance(last_input.position, position) <= position_epsilon_;
+}
+
+}  // namespace ink::strokes_internal

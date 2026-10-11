@@ -1,0 +1,5 @@
+Ecru application icon
+Created for Ecru using OpenAI image generation, then packaged into native macOS
+icon sizes. No lettering or third-party logo is included. Project artwork is
+provided under Apache-2.0 with the rest of the first-party project.
+Master: Ecru-Master.png. AppIcon.icns contains standard 1x/2x representations.

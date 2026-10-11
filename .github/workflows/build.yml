@@ -1,0 +1,35 @@
+name: Build and test Ecru
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install test dependencies
+        run: python3 -m pip install -r Tests/requirements.txt
+      - name: Build Universal 2
+        run: ECRU_RELEASE=1 zsh Scripts/build.sh
+      - name: Core tests on the runner architecture
+        run: zsh Scripts/test.sh
+      - name: Package Universal DMG
+        run: ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ecru-universal-${{ matrix.runner }}
+          path: output/releases/*/

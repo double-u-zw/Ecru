@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>Ecru</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.leafink.reader.development</string>
+	<key>CFBundleName</key>
+	<string>Ecru</string>
+	<key>CFBundleDisplayName</key>
+	<string>Ecru</string>
+	<key>CFBundleVersion</key>
+	<string>13</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.5.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>zh-Hans</string>
+		<string>zh-Hant</string>
+	</array>
+	<key>CFBundleIconFile</key>
+	<string>EcruIcon</string>
+	<key>PadInkGestureBridgeVersion</key>
+	<integer>1</integer>
+	<key>NSPrincipalClass</key>
+	<string>NSApplication</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>PDF document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+		</dict>
+	</array>
+	<key>EcruReleaseVersion</key>
+	<string>0.5.0-beta.2-rc.1</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Ecru contributors. Licensed under Apache-2.0.</string>
+</dict>
+</plist>

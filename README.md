@@ -4,11 +4,13 @@
 
 轻量、原生的 macOS PDF 阅读与手写批注工具。打开文档，在原文上直接书写，把想法留在阅读现场。
 
-**首个公开 Beta：0.5.0-beta.1（12）** · Apple Silicon · macOS 13 Ventura 或更新版本
+**公开下载：0.5.0-beta.1（12）** · Apple Silicon · macOS 13+
+
+当前源码：**0.5.0-beta.2-rc.1（13）** · Apache-2.0 · Universal 2（Apple Silicon + Intel）。beta.2 安装包待 UI 验收后发布。
 
 [下载 DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.1/Ecru-0.5.0-beta.1-arm64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 
-![Ecru 实际应用窗口：PDF 阅读与手写批注](assets/reading.png)
+![Ecru 实际应用窗口：PDF 阅读与手写批注](assets/reading-candidate.png)
 
 ## 主要功能
 
@@ -21,9 +23,9 @@
 
 无需账号。PDF 阅读、手写和文字批注预览均在本机完成，无需联网。
 
-![Ecru 实际应用窗口：文字批注](assets/notes.png)
+![Ecru 实际应用窗口：文字批注](assets/notes-candidate.png)
 
-截图来自真实 AppKit 窗口，使用本项目的合成示例 PDF。
+截图来自 beta.2 候选的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
 
 ## 系统要求
 
@@ -38,7 +40,7 @@
 
 ## 下载与安装
 
-1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载 **Ecru-0.5.0-beta.1-arm64.dmg**。GitHub 自动生成的 “Source code” 压缩包仅含这个分发仓库的说明和图片，不能用来安装 App。
+1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载 **Ecru-0.5.0-beta.1-arm64.dmg**。当前 main 包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
 2. 打开 DMG，将 **Ecru.app** 拖入 **Applications（应用程序）**，然后推出磁盘映像。
 3. 从“应用程序”启动 Ecru。
 4. 本 Beta 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
@@ -82,10 +84,29 @@ shasum -a 256 -c SHA256SUMS.txt
 
 ## 分发与第三方声明
 
-这是 Ecru 的公开下载、使用说明和反馈仓库。正式开发源码与历史 Git 仓库保持独立；本仓库不包含应用的开发源码。
+这是 Ecru 的源码、公开下载、使用说明和反馈仓库。历史开发 Git 仓库保持独立，当前正式源码以干净提交公开。
 
-[第三方组件与许可证](THIRD_PARTY_NOTICES.md) · [分发说明](DISTRIBUTION.md) · [首次 Beta Release Notes](RELEASE_NOTES.md)
+[第三方组件与许可证](THIRD_PARTY_NOTICES.md) · [分发说明](DISTRIBUTION.md) · [当前候选说明](RELEASE_NOTES.md) · [首次 Beta Release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1)
 
 ---
 
 **Ecru** is a native PDF reader and handwriting annotation app for macOS. This first public Beta is for **Apple Silicon on macOS 13+**, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). Intel, OCR, automatic updates, encrypted/signed/form PDFs are not supported in this release. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
+
+## 开发与开源许可
+
+```sh
+git clone https://github.com/double-u-zw/Ecru.git
+cd Ecru
+zsh Scripts/build.sh
+open output/Ecru.app
+```
+
+需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认输出 Universal 2 App，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
+
+- `Sources/`：AppKit 阅读窗口、PDF 编辑/恢复、Swift 笔迹适配与 C++ Google Ink 桥接。
+- `Resources/`：图标、本地化与离线 Markdown/数学预览。
+- `ThirdParty/`：固定版本的上游源码和原许可证。
+- `Scripts/`、`Tests/`：构建、Universal 打包和可复现的公开回归。
+- `docs/`：架构与存储兼容约定；`assets/` 和 `licenses/` 保留产品分发资料。
+
+Ecru 第一方源码、文档与项目美术采用 [Apache-2.0](LICENSE)，允许修改和分发衍生版本。第三方材料保留各自 Apache-2.0、MIT 或 SIL OFL 1.1 许可，见 [NOTICE](NOTICE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。提交规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。

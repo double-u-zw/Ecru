@@ -1,0 +1,152 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef INK_STROKES_INTERNAL_BRUSH_TIP_MODELER_HELPERS_H_
+#define INK_STROKES_INTERNAL_BRUSH_TIP_MODELER_HELPERS_H_
+
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <limits>
+#include <optional>
+#include <variant>
+#include <vector>
+
+#include "absl/types/span.h"
+#include "ink/brush/brush_behavior.h"
+#include "ink/brush/brush_tip.h"
+#include "ink/geometry/angle.h"
+#include "ink/geometry/point.h"
+#include "ink/strokes/internal/brush_tip_state.h"
+#include "ink/strokes/internal/easing_implementation.h"
+#include "ink/strokes/internal/modeled_stroke_input.h"
+#include "ink/strokes/internal/noise_generator.h"
+
+namespace ink::strokes_internal {
+
+// Conceptually, the values manipulated by brush behavior nodes are nullable
+// finite floats. For performance reasons, these are represented internally as
+// plain `float`s (rather than, say, `std::optional<float>`), using NaN as a
+// sentinel value to represent "null".
+static_assert(std::numeric_limits<float>::has_quiet_NaN);
+inline constexpr float kNullBehaviorNodeValue =
+    std::numeric_limits<float>::quiet_NaN();
+
+// Returns true if the given brush behavior node value is "null".
+inline bool IsNullBehaviorNodeValue(float value) { return std::isnan(value); }
+
+struct NoiseNodeImplementation {
+  // The index into `BehaviorNodeContext::noise_generators` for the latest noise
+  // generator state of this noise node.
+  size_t generator_index;
+  // The below fields are copies of the same fields from the
+  // `BrushBehavior::NoiseNode` that this struct helps implement.
+  BrushBehavior::ProgressDomain vary_over;
+  float base_period;
+};
+
+struct DampingNodeImplementation {
+  // The index into `BehaviorNodeContext::damped_values` for the latest damped
+  // value of this damping node.
+  size_t damping_index;
+  // The below fields are copies of the same fields from the
+  // `BrushBehavior::DampingNode` that this struct helps implement.
+  BrushBehavior::ProgressDomain damp_over;
+  float strength;
+};
+
+struct IntegralNodeImplementation {
+  // The index into `BehaviorNodeContext::integrals` for the latest integration
+  // state of this integral node.
+  size_t integral_index;
+  // The below fields are copies of the same fields from the
+  // `BrushBehavior::IntegralNode` that this struct helps implement.
+  BrushBehavior::ProgressDomain integrate_over;
+  BrushBehavior::OutOfRange integral_out_of_range_behavior;
+  std::array<float, 2> integral_value_range;
+};
+
+struct TargetNodeImplementation {
+  // The index into `BehaviorNodeContext::target_modifiers` for the latest
+  // modifier value of this target node.
+  size_t target_index;
+  // The below field is a copy of the same field from the
+  // `BrushBehavior::TargetNode` that this struct helps implement.
+  std::array<float, 2> target_modifier_range;
+};
+
+struct PolarTargetNodeImplementation {
+  // The indices into `BehaviorNodeContext::target_modifiers` for the latest X/Y
+  // modifier values of this target node.
+  size_t target_x_index;
+  size_t target_y_index;
+  // The below fields are copies of the same fields from the
+  // `BrushBehavior::PolarTargetNode` that this struct helps implement.
+  std::array<float, 2> angle_range;
+  std::array<float, 2> magnitude_range;
+};
+
+using BehaviorNodeImplementation =
+    std::variant<BrushBehavior::SourceNode, BrushBehavior::ConstantNode,
+                 NoiseNodeImplementation, BrushBehavior::ToolTypeFilterNode,
+                 DampingNodeImplementation, EasingImplementation,
+                 BrushBehavior::BinaryOpNode, BrushBehavior::InterpolationNode,
+                 IntegralNodeImplementation, TargetNodeImplementation,
+                 PolarTargetNodeImplementation>;
+
+// Holds mutable state for an integral node.
+struct IntegralState {
+  // The most recent non-null value (if any) of the input node being integrated.
+  float last_input = kNullBehaviorNodeValue;
+  // The most recent integral value of the `IntegralNode` (i.e. the running
+  // total so far), before being mapped through `integral_value_range` and
+  // `integral_out_of_range_behavior`.
+  float last_integral = 0.0f;
+};
+
+// Holds references to stroke data needed by `ProcessBehaviorNode()`, as well as
+// references to mutable state that that function will need to update.
+struct BehaviorNodeContext {
+  const InputModelerState& input_modeler_state;
+  const ModeledStrokeInput& current_input;
+  float brush_size;
+  // Distance/time from the start of the stroke up to the previous input (if
+  // any).
+  std::optional<InputMetrics> previous_input_metrics;
+  std::vector<float>& stack;
+  absl::Span<NoiseGenerator> noise_generators;
+  absl::Span<float> damped_values;
+  absl::Span<IntegralState> integrals;
+  absl::Span<float> target_modifiers;
+};
+
+// Executes the specified node on the specified context. Note that although
+// `context` is a const reference, the mutable objects that `context` references
+// (`stack`, `damped_values`, and `target_modifiers`) will in general be
+// modified by this function.
+void ProcessBehaviorNode(const BehaviorNodeImplementation& node,
+                         const BehaviorNodeContext& context);
+
+// Constructs a `BrushTipState` at the given `position` using the non-behavior
+// parameters of `brush_tip` with `brush_size`, and then applies
+// `target_modifiers` to the `targets` (these last two spans must be the same
+// size).
+BrushTipState CreateTipState(Point position, Vec velocity,
+                             const BrushTip& brush_tip, float brush_size,
+                             absl::Span<const BrushBehavior::Target> targets,
+                             absl::Span<const float> target_modifiers);
+
+}  // namespace ink::strokes_internal
+
+#endif  // INK_STROKES_INTERNAL_BRUSH_TIP_MODELER_HELPERS_H_

@@ -1,0 +1,460 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "ink/strokes/input/stroke_input_batch.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <string>
+#include <vector>
+
+#include "absl/log/absl_check.h"
+#include "absl/status/status.h"
+#include "absl/status/status_macros.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_join.h"
+#include "absl/strings/substitute.h"
+#include "absl/types/span.h"
+#include "ink/geometry/affine_transform.h"
+#include "ink/geometry/angle.h"
+#include "ink/geometry/point.h"
+#include "ink/strokes/input/internal/stroke_input_validation_helpers.h"
+#include "ink/strokes/input/stroke_input.h"
+#include "ink/types/duration.h"
+#include "ink/types/internal/copy_on_write.h"
+#include "ink/types/physical_distance.h"
+
+namespace ink {
+
+StrokeInputBatch::ConstIterator& StrokeInputBatch::ConstIterator::operator++() {
+  ABSL_DCHECK(!batch_subdata_.empty())
+      << "Attempted to dereference singular or past-the-end iterator";
+  ABSL_DCHECK_EQ(batch_subdata_.size() % FloatsPerInput(value_), 0);
+
+  batch_subdata_.remove_prefix(FloatsPerInput(value_));
+  if (!batch_subdata_.empty()) {
+    auto iter = batch_subdata_.begin();
+    value_.position = {.x = *iter++, .y = *iter++};
+    value_.elapsed_time = Duration32::Seconds(*iter++);
+    if (value_.HasPressure()) value_.pressure = *iter++;
+    if (value_.HasTilt()) value_.tilt = Angle::Radians(*iter++);
+    if (value_.HasOrientation()) value_.orientation = Angle::Radians(*iter++);
+    if (value_.HasBarrelTwist()) {
+      value_.barrel_twist = Angle::Radians(*iter++);
+    }
+  }
+  return *this;
+}
+
+StrokeInputBatch::ConstIterator StrokeInputBatch::ConstIterator::operator++(
+    int) {
+  ConstIterator retval = *this;
+  ++(*this);
+  return retval;
+}
+
+void StrokeInputBatch::Clear() {
+  ClearInputs();
+  noise_seed_ = 0;
+  base_paint_animation_phase_ = 0.0f;
+}
+
+void StrokeInputBatch::ClearInputs() {
+  if (data_.IsShared()) {
+    data_.Reset();
+  } else if (data_.HasValue()) {
+    data_.MutableValue().clear();
+  }
+
+  size_ = 0;
+  tool_type_ = StrokeInput::ToolType::kUnknown;
+  stroke_unit_length_ = StrokeInput::kNoStrokeUnitLength;
+  has_pressure_ = false;
+  has_tilt_ = false;
+  has_orientation_ = false;
+  has_barrel_twist_ = false;
+}
+
+StrokeInputBatch StrokeInputBatch::MakeDeepCopy() const {
+  StrokeInputBatch new_batch(*this);
+  if (new_batch.data_.HasValue()) {
+    new_batch.data_.Emplace(new_batch.data_->begin(), new_batch.data_->end());
+  }
+  return new_batch;
+}
+
+namespace {
+
+using ::ink::stroke_input_internal::ValidateConsecutiveInputs;
+
+// Validates properties of a single `StrokeInput`.
+//
+// This includes checking that the `input`:
+//   * Has a valid `tool_type`
+//   * Has all finite floating point values
+//   * If they are reported, `pressure`, `tilt`, `orientation`, and
+//     `barrel_twist` are in their respective valid range
+absl::Status ValidateSingleInput(const StrokeInput& input) {
+  if (input.tool_type != StrokeInput::ToolType::kUnknown &&
+      input.tool_type != StrokeInput::ToolType::kMouse &&
+      input.tool_type != StrokeInput::ToolType::kStylus &&
+      input.tool_type != StrokeInput::ToolType::kTouch) {
+    return absl::InvalidArgumentError(absl::Substitute(
+        "`tool_type` must be one of the named enumerators. Got value $0",
+        static_cast<int>(input.tool_type)));
+  }
+
+  if (!std::isfinite(input.position.x) || !std::isfinite(input.position.y)) {
+    return absl::InvalidArgumentError(absl::Substitute(
+        "`StrokeInput::position` must be finite. Got: $0", input.position));
+  }
+
+  if (!input.elapsed_time.IsFinite() ||
+      input.elapsed_time < Duration32::Zero()) {
+    return absl::InvalidArgumentError(absl::Substitute(
+        "`StrokeInput::elapsed_time` must be finite and non-negative. Got: $0",
+        input.elapsed_time.ToSeconds()));
+  }
+
+  if (input.HasStrokeUnitLength() &&
+      !(input.stroke_unit_length.IsFinite() &&
+        input.stroke_unit_length > PhysicalDistance::Zero())) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("If present, `StrokeInput::stroke_unit_length` must "
+                         "be finite and strictly positive. Got: $0",
+                         input.stroke_unit_length));
+  }
+
+  if (!std::isfinite(input.pressure) ||
+      (input.HasPressure() && !(input.pressure >= 0 && input.pressure <= 1))) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("`StrokeInput::pressure` must be -1 or in the range "
+                         "[0, 1]. Got: $0",
+                         input.pressure));
+  }
+
+  if (!std::isfinite(input.tilt.ValueInRadians()) ||
+      (input.HasTilt() &&
+       !(input.tilt >= Angle() && input.tilt <= kQuarterTurn))) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("`StrokeInput::tilt` must be -1 or in the range [0, "
+                         "pi / 2]. Got: $0",
+                         input.tilt));
+  }
+
+  if (!std::isfinite(input.orientation.ValueInRadians()) ||
+      (input.HasOrientation() &&
+       !(input.orientation >= Angle() && input.orientation <= kFullTurn))) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("`StrokeInput::orientation` must be -1 or in the "
+                         "range [0, 2 * pi]. Got: $0",
+                         input.orientation));
+  }
+
+  if (!std::isfinite(input.barrel_twist.ValueInRadians()) ||
+      (input.HasBarrelTwist() &&
+       !(input.barrel_twist >= Angle() && input.barrel_twist <= kFullTurn))) {
+    return absl::InvalidArgumentError(
+        absl::Substitute("`StrokeInput::barrel_twist` must be -1 or in the "
+                         "range [0, 2 * pi]. Got: $0",
+                         input.barrel_twist));
+  }
+
+  return absl::OkStatus();
+}
+
+absl::Status ValidateInputSequence(absl::Span<const StrokeInput> inputs) {
+  if (inputs.empty()) return absl::OkStatus();
+  ABSL_RETURN_IF_ERROR(ValidateSingleInput(inputs[0]));
+  for (size_t i = 1; i < inputs.size(); ++i) {
+    ABSL_RETURN_IF_ERROR(ValidateSingleInput(inputs[i]));
+    ABSL_RETURN_IF_ERROR(ValidateConsecutiveInputs(inputs[i - 1], inputs[i]))
+        << "Failed to validate input at index " << i
+        << " against previous input.";
+  }
+
+  return absl::OkStatus();
+}
+
+}  // namespace
+
+void StrokeInputBatch::SetInlineFormatMetadata(const StrokeInput& input) {
+  ABSL_DCHECK(IsEmpty());
+  tool_type_ = input.tool_type;
+  stroke_unit_length_ = input.stroke_unit_length;
+  has_pressure_ = input.HasPressure();
+  has_tilt_ = input.HasTilt();
+  has_orientation_ = input.HasOrientation();
+  has_barrel_twist_ = input.HasBarrelTwist();
+}
+
+namespace {
+
+void AppendInputToFloatVector(const StrokeInput& input,
+                              std::vector<float>& data) {
+  data.push_back(input.position.x);
+  data.push_back(input.position.y);
+  data.push_back(input.elapsed_time.ToSeconds());
+  if (input.HasPressure()) data.push_back(input.pressure);
+  if (input.HasTilt()) data.push_back(input.tilt.ValueInRadians());
+  if (input.HasOrientation()) {
+    data.push_back(input.orientation.ValueInRadians());
+  }
+  if (input.HasBarrelTwist()) {
+    data.push_back(input.barrel_twist.ValueInRadians());
+  }
+}
+
+}  // namespace
+
+absl::Status StrokeInputBatch::Set(int i, const StrokeInput& input) {
+  ABSL_CHECK_GE(i, 0);
+  ABSL_CHECK_LT(i, Size());
+  ABSL_RETURN_IF_ERROR(ValidateSingleInput(input));
+
+  if (Size() == 1) {
+    ClearInputs();
+    if (!data_.HasValue()) data_.Emplace();
+    SetInlineFormatMetadata(input);
+    AppendInputToFloatVector(input, data_.MutableValue());
+    size_ = 1;
+    return absl::OkStatus();
+  }
+
+  if (i > 0) {
+    ABSL_RETURN_IF_ERROR(ValidateConsecutiveInputs(Get(i - 1), input))
+        << "Failed to validate input being set at index " << i
+        << " against previous input.";
+    ;
+  }
+  if (i + 1 < Size()) {
+    ABSL_RETURN_IF_ERROR(ValidateConsecutiveInputs(input, Get(i + 1)))
+        << "Failed to validate input being set at index " << i
+        << " against following input.";
+  }
+
+  auto data =
+      absl::MakeSpan(data_.MutableValue()).subspan(i * FloatsPerInput());
+  auto iter = data.begin();
+  *iter++ = input.position.x;
+  *iter++ = input.position.y;
+  *iter++ = input.elapsed_time.ToSeconds();
+  if (HasPressure()) *iter++ = input.pressure;
+  if (HasTilt()) *iter++ = input.tilt.ValueInRadians();
+  if (HasOrientation()) *iter++ = input.orientation.ValueInRadians();
+  if (HasBarrelTwist()) *iter++ = input.barrel_twist.ValueInRadians();
+
+  return absl::OkStatus();
+}
+
+StrokeInput StrokeInputBatch::Get(int i) const {
+  ABSL_CHECK_GE(i, 0);
+  ABSL_CHECK_LT(i, Size());
+
+  auto data = absl::MakeSpan(data_.Value()).subspan(i * FloatsPerInput());
+  auto iter = data.begin();
+  return {.tool_type = tool_type_,
+          .position = {.x = *iter++, .y = *iter++},
+          .elapsed_time = Duration32::Seconds(*iter++),
+          .stroke_unit_length = stroke_unit_length_,
+          .pressure = HasPressure() ? *iter++ : StrokeInput::kNoPressure,
+          .tilt = HasTilt() ? Angle::Radians(*iter++) : StrokeInput::kNoTilt,
+          .orientation = HasOrientation() ? Angle::Radians(*iter++)
+                                          : StrokeInput::kNoOrientation,
+          .barrel_twist = HasBarrelTwist() ? Angle::Radians(*iter++)
+                                           : StrokeInput::kNoBarrelTwist};
+}
+
+absl::Status StrokeInputBatch::PrepareForAppend(
+    const StrokeInput& first_new_input) {
+  if (IsEmpty()) {
+    if (!data_.HasValue()) {
+      data_.Emplace();
+    }
+    SetInlineFormatMetadata(first_new_input);
+  } else {
+    ABSL_RETURN_IF_ERROR(ValidateConsecutiveInputs(Last(), first_new_input));
+  }
+  return absl::OkStatus();
+}
+
+absl::Status StrokeInputBatch::Append(const StrokeInput& input) {
+  ABSL_RETURN_IF_ERROR(ValidateSingleInput(input));
+  ABSL_RETURN_IF_ERROR(PrepareForAppend(input))
+      << "Failed to validate new single input against previous values.";
+  AppendInputToFloatVector(input, data_.MutableValue());
+  ++size_;
+  return absl::OkStatus();
+}
+
+absl::Status StrokeInputBatch::Append(absl::Span<const StrokeInput> inputs) {
+  if (inputs.empty()) {
+    return absl::OkStatus();
+  }
+  ABSL_RETURN_IF_ERROR(ValidateInputSequence(inputs))
+      << "Failed to validate new input span.";
+  ABSL_RETURN_IF_ERROR(PrepareForAppend(inputs.front()))
+      << "Failed to validate new input span against previous values.";
+
+  // We don't call `vector::reserve` on purpose. Depending on the STL
+  // implementation, it could degrade performance given the expectation that
+  // this function will be called repeatedly with relatively small batches of
+  // new inputs.
+  std::vector<float>& data = data_.MutableValue();
+  for (const StrokeInput& input : inputs) {
+    AppendInputToFloatVector(input, data);
+  }
+  size_ += inputs.size();
+
+  return absl::OkStatus();
+}
+
+void StrokeInputBatch::Reserve(int size, const StrokeInput& sample_input) {
+  if (size <= 0) return;
+  if (!data_.HasValue()) data_.Emplace();
+  data_.MutableValue().reserve(size * FloatsPerInput(sample_input));
+}
+
+absl::StatusOr<StrokeInputBatch> StrokeInputBatch::Create(
+    absl::Span<const StrokeInput> inputs, uint32_t noise_seed,
+    float base_paint_animation_phase) {
+  StrokeInputBatch batch;
+
+  if (!inputs.empty()) {
+    batch.Reserve(inputs.size(), inputs.front());
+    ABSL_RETURN_IF_ERROR(batch.Append(inputs));
+  }
+
+  batch.SetNoiseSeed(noise_seed);
+  batch.SetBasePaintAnimationPhase(base_paint_animation_phase);
+  return batch;
+}
+
+absl::Status StrokeInputBatch::Append(const StrokeInputBatch& inputs) {
+  if (inputs.IsEmpty()) return absl::OkStatus();
+
+  if (IsEmpty()) {
+    uint32_t old_noise_seed = noise_seed_;
+    float old_animation_phase = base_paint_animation_phase_;
+    *this = inputs;
+    noise_seed_ = old_noise_seed;
+    base_paint_animation_phase_ = old_animation_phase;
+    return absl::OkStatus();
+  }
+
+  ABSL_RETURN_IF_ERROR(ValidateConsecutiveInputs(Last(), inputs.First()))
+      << "Failed to validate new input batch against previous input.";
+
+  // We don't call `vector::reserve` on purpose. Depending on the STL
+  // implementation, it could degrade performance given the expectation that
+  // this function will be called repeatedly with relatively small batches of
+  // new inputs.
+
+  std::vector<float>& data = data_.MutableValue();
+  const std::vector<float>& append_data = inputs.data_.Value();
+  data.insert(data.end(), append_data.begin(), append_data.end());
+  size_ += inputs.Size();
+
+  return absl::OkStatus();
+}
+
+absl::Status StrokeInputBatch::Append(const StrokeInputBatch& inputs,
+                                      int start_index, int end_index) {
+  ABSL_CHECK_GE(start_index, 0);
+  ABSL_CHECK_LE(end_index, inputs.Size());
+  ABSL_CHECK_LE(start_index, end_index);
+
+  if (start_index == end_index) return absl::OkStatus();
+
+  if (!IsEmpty()) {
+    ABSL_RETURN_IF_ERROR(
+        ValidateConsecutiveInputs(Last(), inputs.Get(start_index)))
+        << "Failed to validate new input batch subsequence against previous "
+           "input.";
+  } else {
+    if (!data_.HasValue()) data_.Emplace();
+    SetInlineFormatMetadata(inputs.Get(start_index));
+  }
+
+  std::vector<float>& data = data_.MutableValue();
+  const std::vector<float>& append_data = inputs.data_.Value();
+  int stride = inputs.FloatsPerInput();
+  data.insert(data.end(), append_data.begin() + start_index * stride,
+              append_data.begin() + end_index * stride);
+  size_ += end_index - start_index;
+
+  return absl::OkStatus();
+}
+
+void StrokeInputBatch::Erase(int start, int count) {
+  ABSL_DCHECK_GE(start, 0);
+  ABSL_CHECK_LE(start, Size());
+
+  count = std::min(count, Size() - start);
+  if (count == 0) return;
+  if (start == 0 && count == Size()) {
+    ClearInputs();
+    return;
+  }
+
+  std::vector<float>& data = data_.MutableValue();
+  int stride = FloatsPerInput();
+  data.erase(data.begin() + start * stride,
+             data.begin() + (start + count) * stride);
+  size_ -= count;
+}
+
+Duration32 StrokeInputBatch::GetDuration() const {
+  if (IsEmpty()) return Duration32::Zero();
+  return Last().elapsed_time - First().elapsed_time;
+}
+
+void StrokeInputBatch::Transform(const AffineTransform& transform,
+                                 TransformInvariant invariant) {
+  if (IsEmpty()) return;
+  // TODO: b/278536966 - add PreservingVelocity invariant and function when
+  // ready
+  TransformPreservingDuration(transform);
+}
+
+void StrokeInputBatch::TransformPreservingDuration(
+    const AffineTransform& transform) {
+  auto data = absl::MakeSpan(data_.MutableValue());
+  int stride = FloatsPerInput();
+  for (auto iter = data.begin(); iter != data.end(); iter += stride) {
+    Point old_position = {*iter, *(iter + 1)};
+    Point new_position = transform.Apply(old_position);
+    *iter = new_position.x;
+    *(iter + 1) = new_position.y;
+  }
+}
+
+std::string StrokeInputBatch::ToFormattedString() const {
+  std::string str =
+      absl::StrCat("StrokeInputBatch[", absl::StrJoin(begin(), end(), ", "));
+  if (noise_seed_ != 0) {
+    absl::StrAppend(&str, ", noise_seed=", noise_seed_);
+  }
+  if (base_paint_animation_phase_ != 0.0f) {
+    absl::StrAppend(
+        &str, ", base_paint_animation_phase=", base_paint_animation_phase_);
+  }
+  str.push_back(']');
+  return str;
+}
+
+}  // namespace ink

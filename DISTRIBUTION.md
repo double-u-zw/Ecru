@@ -1,9 +1,17 @@
-# Ecru Beta 分发说明
+# Ecru distribution and source
 
-本仓库提供 Ecru 的公开 Beta 安装包、截图、使用说明和问题反馈。Beta 可免费下载使用。
+This repository contains the current buildable Ecru source and its public Beta
+distribution materials. Ecru first-party source, documentation and project artwork
+are licensed under Apache-2.0; see LICENSE and NOTICE. Third-party materials retain
+their own licenses in THIRD_PARTY_NOTICES.md, licenses/ and their source directories.
+You may modify and distribute derivatives under the license conditions.
 
-本次发布不包括正式开发源码或历史 Git 仓库，也未为 Ecru 的第一方源码授予开源许可证。Ecru 第一方程序和图标的版权归其权利人所有。第三方组件按各自许可证分发，完整文本位于 `licenses/` 及 App 的 `Contents/Resources/Licenses/`。
+The historical `v0.5.0-beta.1` tag and its arm64 DMG are unchanged. That tag's GitHub
+source archive contains the original distribution documents only. Current `main`
+contains buildable source; new source tags identify the current open-source code.
+The private development repository and its prior history are not imported.
 
-此版本为测试版，仍存在 README 中列出的限制。发布包使用临时签名，尚未经过 Apple 公证。支持范围和实际验证环境见 README；这不是对所有 macOS 版本或输入设备的逐一认证。
-
-GitHub 自动提供的 Source code 归档仅含分发仓库内容，不是可构建的应用源码。
+The current beta.2 release candidate targets Apple Silicon and Intel through one
+Universal 2 App/DMG. It awaits UI acceptance before a beta.2 GitHub Release.
+Public downloads still point to beta.1 until that acceptance. Signing is ad hoc;
+Apple Developer ID signing and notarization are not yet available.

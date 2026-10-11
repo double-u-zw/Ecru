@@ -1,0 +1,60 @@
+Ecru — Third-Party Notices
+
+Google Ink C++ core — Apache License 2.0
+Copyright 2024, 2025, 2026 Google LLC.
+https://github.com/google/ink
+Revision: b6def591a73a6aa0ffce1e58dc69b39de31484ba
+Upstream source closure is unmodified. Ecru supplies its own C ABI, input
+position model, daily brush definition and Core Graphics outline adapter.
+License: Google-Ink.txt
+
+Google Ink Stroke Modeler — Apache License 2.0
+Copyright 2022, 2024 Google LLC.
+https://github.com/google/ink-stroke-modeler
+Revision: f2388813b0b25bc3e33d143d369a8367ab2e30c8
+Upstream is unmodified. Retained in the statically linked native archive for
+legacy code paths; it is not the default production pen engine.
+License: Google-Ink-Stroke-Modeler.txt
+
+Abseil C++ — Apache License 2.0
+Copyright 2016, 2017, 2025 Google Inc. All Rights Reserved.
+Copyright 2017–2026 The Abseil Authors.
+https://github.com/abseil/abseil-cpp
+Revision: 5650e9cf76d3be4318d5fa3af38ee483ddfd5e4a (20260526.0)
+Statically linked, unmodified. License: Abseil.txt
+
+perfect-freehand — MIT License
+Copyright (c) 2021 Stephen Ruiz Ltd.
+https://github.com/steveruizok/perfect-freehand
+Revision: 176e00f2399f4969e1b0965c5921d96a3e50ce9f
+Ecru includes a native Swift port for older stroke compatibility; the current
+pen uses Google Ink. Ecru-specific end-noise and contour adaptations are outside
+the upstream source. License: perfect-freehand-MIT.txt
+
+markdown-it 14.1.0 — MIT License
+Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.
+https://github.com/markdown-it/markdown-it
+Unmodified bundled browser distribution. License: markdown-it-MIT.txt
+
+markdown-it-texmath — MIT License
+Copyright (c) 2013-17, 2017-22 Stefan Goessner.
+https://github.com/goessner/markdown-it-texmath
+Bundled browser plugin. License: markdown-it-texmath-MIT.txt
+
+KaTeX 0.16.22 — MIT License
+Copyright (c) 2013-2020 Khan Academy and other contributors.
+https://github.com/KaTeX/KaTeX
+Unmodified offline distribution. License: KaTeX-MIT.txt
+
+KaTeX fonts — SIL Open Font License 1.1
+Copyright (c) 2009-2010 Design Science, Inc.
+Copyright (c) 2014-2018 Khan Academy.
+Original bundled fonts, with their Reserved Font Names and complete license:
+KaTeX-Fonts-OFL-1.1.txt
+
+Google Ink, Abseil and the other projects do not endorse Ecru.
+Their licenses apply to their respective components. First-party Ecru source,
+documentation and project artwork are licensed under Apache License 2.0.
+See Ecru-Apache-2.0.txt and Ecru-NOTICE.txt. Private development history is excluded.
+Googletest is a build-time configuration dependency and is not shipped.
+Apple frameworks are provided by macOS and are not redistributed in this app.

@@ -1,0 +1,114 @@
+// Copyright 2024 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#include "ink/strokes/internal/stroke_input_modeler.h"
+
+#include <algorithm>
+#include <cstddef>
+#include <memory>
+#include <variant>
+
+#include "absl/base/nullability.h"
+#include "absl/log/absl_check.h"
+#include "ink/brush/brush_family.h"
+#include "ink/strokes/input/stroke_input_batch.h"
+#include "ink/strokes/internal/modeled_stroke_input.h"
+#include "ink/strokes/internal/stroke_input_modeler/input_model_impl.h"
+#include "ink/strokes/internal/stroke_input_modeler/passthrough_input_modeler.h"
+#include "ink/strokes/internal/stroke_input_modeler/sliding_window_input_modeler.h"
+#include "ink/types/duration.h"
+
+namespace ink::strokes_internal {
+namespace {
+
+absl_nonnull std::unique_ptr<InputModelImpl> CreateInputModeler(
+    const BrushFamily::PassthroughModel& passthrough_model,
+    float brush_epsilon) {
+  return std::make_unique<PassthroughInputModeler>();
+}
+
+absl_nonnull std::unique_ptr<InputModelImpl> CreateInputModeler(
+    const BrushFamily::SlidingWindowModel& sliding_window_model,
+    float brush_epsilon) {
+  return std::make_unique<SlidingWindowInputModeler>(
+      sliding_window_model.window_size, sliding_window_model.upsampling_period,
+      brush_epsilon);
+}
+
+}  // namespace
+
+void StrokeInputModeler::StartStroke(const BrushFamily::InputModel& input_model,
+                                     float brush_epsilon) {
+  ABSL_CHECK_GT(brush_epsilon, 0);
+  state_ = InputModelerState{};
+  modeled_inputs_.clear();
+  input_model_impl_ = std::visit(
+      [brush_epsilon](auto& model) {
+        return CreateInputModeler(model, brush_epsilon);
+      },
+      input_model);
+}
+
+void StrokeInputModeler::ExtendStroke(const StrokeInputBatch& real_inputs,
+                                      const StrokeInputBatch& predicted_inputs,
+                                      Duration32 current_elapsed_time) {
+  ABSL_CHECK_NE(input_model_impl_, nullptr)
+      << "`StartStroke()` has not been called.";
+  ABSL_CHECK(!state_.inputs_are_finished ||
+             (real_inputs.IsEmpty() && predicted_inputs.IsEmpty()))
+      << "Can't add more inputs after calling `FinishStrokeInputs()`.";
+  ErasePredictedModeledInputs();
+  SetToolTypeAndStrokeUnitLength(real_inputs, predicted_inputs);
+  input_model_impl_->ExtendStroke(state_, modeled_inputs_, real_inputs,
+                                  predicted_inputs);
+  ABSL_DCHECK_LE(state_.stable_input_count, state_.real_input_count);
+
+  SetMetricsFromInputCount(state_.real_input_count, state_.real_input_metrics);
+  SetMetricsFromInputCount(modeled_inputs_.size(), state_.full_input_metrics);
+  state_.complete_elapsed_time =
+      std::max(state_.full_input_metrics.elapsed_time, current_elapsed_time);
+}
+
+void StrokeInputModeler::ErasePredictedModeledInputs() {
+  modeled_inputs_.resize(state_.real_input_count);
+  state_.full_input_metrics = state_.real_input_metrics;
+  state_.complete_elapsed_time = state_.real_input_metrics.elapsed_time;
+}
+
+void StrokeInputModeler::SetToolTypeAndStrokeUnitLength(
+    const StrokeInputBatch& real_inputs,
+    const StrokeInputBatch& predicted_inputs) {
+  if (!real_inputs.IsEmpty()) {
+    state_.tool_type = real_inputs.GetToolType();
+    state_.stroke_unit_length = real_inputs.GetStrokeUnitLength();
+  } else if (!predicted_inputs.IsEmpty()) {
+    state_.tool_type = predicted_inputs.GetToolType();
+    state_.stroke_unit_length = predicted_inputs.GetStrokeUnitLength();
+  }
+}
+
+void StrokeInputModeler::SetMetricsFromInputCount(size_t modeled_input_count,
+                                                  InputMetrics& metrics) {
+  ABSL_DCHECK_LE(modeled_input_count, modeled_inputs_.size());
+  if (modeled_input_count == 0) {
+    metrics.elapsed_time = Duration32::Zero();
+    metrics.traveled_distance = 0;
+  } else {
+    const ModeledStrokeInput& input = modeled_inputs_[modeled_input_count - 1];
+    metrics.elapsed_time = input.elapsed_time;
+    metrics.traveled_distance = input.traveled_distance;
+  }
+}
+
+}  // namespace ink::strokes_internal

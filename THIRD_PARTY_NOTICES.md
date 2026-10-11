@@ -19,4 +19,4 @@ Google Ink、Abseil 的上游源码保持未修改；Ecru 自己实现输入模�
 
 Google Ink、Google Ink Stroke Modeler 与 Abseil 的指定上游版本均未发现独立 NOTICE 文件，保留原 LICENSE，并汇总版权声明。KaTeX 字体按其字体元数据中的 SIL Open Font License 分发，保留字体名称、版权声明与完整许可。
 
-构建配置下载的 googletest 不会随 App 分发。Apple 系统框架由 macOS 提供。以上项目及其权利人不为 Ecru 背书，第三方许可证只适用于各自组件；第一方源码的分发情况见 [分发说明](DISTRIBUTION.md)。
+构建配置下载的 googletest 不会随 App 分发。Apple 系统框架由 macOS 提供。以上项目及其权利人不为 Ecru 背书，第三方许可证只适用于各自组件；Ecru 第一方源码采用 Apache-2.0，见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
