@@ -34,7 +34,7 @@
 | 当前源码 / beta.2 候选 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
-| 本次实际验证 | Apple Silicon / macOS 27.0.1 |
+| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；云端 macOS 14 arm64 / macOS 15 Intel |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
 已发布的 beta.1 安装包仅支持 Apple Silicon；beta.2 候选包含 Intel 架构。较早的 macOS 与不同输入设备尚未逐一实机验收。
@@ -53,7 +53,7 @@
 从同一 Release 下载 `SHA256SUMS.txt`，与 DMG 放在同一文件夹后运行：
 
 ```sh
-shasum -a 256 -c SHA256SUMS.txt
+shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 ```
 
 应显示 DMG 文件名和 `OK`。SHA-256 用于确认下载内容一致，并不代替 Apple 公证。

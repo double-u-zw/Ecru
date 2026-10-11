@@ -16,6 +16,7 @@ Feedback: https://github.com/double-u-zw/Ecru/issues
 Verify downloads: shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 Encrypted, signed and form PDFs are not supported. No OCR or automatic updater.
-The interface is primarily Chinese. Intel support has initial Rosetta validation;
-physical Intel hardware and macOS 13 still need separate confirmation.
+The interface is primarily Chinese. Core tests passed on native macOS 14 arm64
+and macOS 15 Intel CI, plus local arm64/Rosetta. Physical Intel input and
+macOS 13 hardware still need separate confirmation.
 First-party code: Apache-2.0. Complete licenses are included in the App and DMG.

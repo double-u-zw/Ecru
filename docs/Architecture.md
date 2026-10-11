@@ -25,3 +25,9 @@
 `PDFPagePreservation.swift` 通过 C 接口调用固定版本 QPDF，从原 PDF 复制页绘图流与继承资源到 PDFKit 的批注导出。PDFKit 保留批注及其外观流，保存前仍检查页面、目录、原绘图与图像资源、批注清单和显示一致性。较旧 macOS 的 PDFKit 可能重写底图，不能仅依赖其导出保证原内容不变。
 
 `build.sh` 默认生成本机架构 App；`build-release.sh` 生成版本和资源一致的 arm64、x86_64 两份 App 与独立 DMG，最低目标均为 macOS 13。CI 在对应原生 runner 上分别构建、回归与打包。
+
+Page identities also carry an optional character-inventory hash. Together with
+unchanged page drawing hashes, this avoids false note-location warnings when
+PDFKit changes text extraction order. Older manifests retain their exact-text
+check. Generated note popups are presentation adapters, removed from the editable
+layer and regenerated from their authoritative note; foreign popups remain intact.
