@@ -54,7 +54,7 @@ window: run one at a time. They cover tools, editing, saving/reopening, long nam
 light/dark appearance and widths 820/1160/1440. Physical input latency, mixed-DPI
 multi-monitor behavior and actual macOS 13 hardware need separate human checks.
 Personal recorded handwriting and old research experiments are excluded.
-See [candidate validation](docs/Validation.md) for the tested environments.
+See [validation results](docs/Validation.md) for the tested environments.
 
 ## Distribution
 

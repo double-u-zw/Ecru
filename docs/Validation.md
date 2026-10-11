@@ -1,7 +1,14 @@
 # beta.2 validation
 
-Release source: **0.5.0-beta.2 (15)**. UI accepted by the maintainer. The prior RC1 artifacts and tag remain
-unchanged. This update aligns the three reading-toolbar controls, follows the
+Release source: **0.5.0-beta.2 (15)**. UI accepted by the maintainer. The release tag points to public source commit
+`f67c178b230d23f19022e579e4eba3ff4b972f10`. Both native architectures passed the
+[final GitHub CI run](https://github.com/double-u-zw/Ecru/actions/runs/38152675376):
+macOS 14 arm64 and macOS 15 Intel, including complete core regressions and DMG packaging.
+The final public checkout also passed all core tests locally on arm64 and Rosetta.
+Both DMGs were mounted read-only, copied and verified against all 111 App files;
+strict ad-hoc signature checks, macOS 13 deployment targets and actual PDF launch
+passed. Uploaded asset digests match the local SHA-256 checksums. Historical beta.1
+and the prior RC1 tag remain unchanged. This update aligns the three reading-toolbar controls, follows the
 viewport for the page indicator, and adds the optional isolated Ecru Dev build.
 Local arm64 and Rosetta x86_64 UI runs each passed 59 checks on macOS 27.0.1
 (one connected display). UI regression additionally covers scrolling to the last/first page and
