@@ -1,4 +1,15 @@
-# beta.2 candidate validation
+# beta.2 development update
+
+Current source: **0.5.0-beta.2-rc.2 (14)**. The prior RC1 artifacts and tag remain
+unchanged. This update aligns the three reading-toolbar controls, follows the
+viewport for the page indicator, and adds the optional isolated Ecru Dev build.
+Local arm64 and Rosetta x86_64 UI runs each passed 59 checks on macOS 27.0.1
+(one connected display). UI regression additionally covers scrolling to the last/first page and
+jumping pages, with explicit vertical-centering checks across window sizes and
+appearances. Development installation uses a distinct bundle ID and data folder.
+The complete RC1 cross-platform baseline is recorded below.
+
+## RC1 candidate validation
 
 Candidate: **0.5.0-beta.2-rc.1 (13)**. Validation date: 2026-10-11.
 

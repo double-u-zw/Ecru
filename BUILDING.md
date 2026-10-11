@@ -75,3 +75,18 @@ Developer ID and Apple notarization require the maintainer's credentials.
 and uploads the runner architecture DMG as a workflow artifact. It does not publish Releases.
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
 Existing beta.1 assets and its tag must never be replaced.
+
+## Keep development and release apps together
+
+```sh
+ECRU_VARIANT=development zsh Scripts/build.sh
+open "output/Ecru Dev.app"
+```
+
+This creates **Ecru Dev**, with bundle ID `local.ecru.reader.development`,
+separate preferences/recent documents and `Application Support/Ecru-Dev` drafts
+and reading positions. It can be installed alongside **Ecru** (currently the public Beta, not a stable release). Release builds
+retain the historical bundle ID and data location so existing recovery records
+remain available. Neither build automatically copies the other application's data.
+`ECRU_DATA_DIR`, when explicitly set for tests, overrides either data location.
+Avoid editing the same PDF in both apps at once; use a copy for development.

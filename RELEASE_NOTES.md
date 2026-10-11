@@ -1,7 +1,11 @@
-# Ecru 0.5.0-beta.2-rc.1 (13)
+# Ecru 0.5.0-beta.2-rc.2 (14)
 
 Candidate for beta.2; the public beta.1 download remains unchanged.
 
+- Align navigation icons and page-number baselines with native stack layout.
+  Keep the page indicator synchronized with continuous scrolling and page jumps.
+- Add an optional Ecru Dev build with independent application identity, preferences
+  and recovery storage, so it can coexist with the installed release.
 - One centered filename in the compact document toolbar; no persistent version
   subtitle. Navigation stays left; page, zoom and search controls stay right.
 - Long filenames truncate in place, including after Save As. Native window menus,

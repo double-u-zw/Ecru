@@ -11,7 +11,7 @@
 	<key>CFBundleDisplayName</key>
 	<string>Ecru</string>
 	<key>CFBundleVersion</key>
-	<string>13</string>
+	<string>14</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.5.0</string>
 	<key>CFBundlePackageType</key>
@@ -50,7 +50,7 @@
 		</dict>
 	</array>
 	<key>EcruReleaseVersion</key>
-	<string>0.5.0-beta.2-rc.1</string>
+	<string>0.5.0-beta.2-rc.2</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Ecru contributors. Licensed under Apache-2.0.</string>
 </dict>

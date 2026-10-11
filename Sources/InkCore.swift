@@ -3,6 +3,16 @@ import PDFKit
 
 /// New diagnostic names take precedence; legacy environment contracts stay usable.
 enum EcruEnvironment {
+    static var applicationSupportDirectory: URL {
+        if let override = value("ECRU_DATA_DIR"), !override.isEmpty {
+            return URL(fileURLWithPath:override,isDirectory:true)
+        }
+        let development = Bundle.main.object(forInfoDictionaryKey:"EcruBuildChannel") as? String == "development"
+        // Retain the installed application's historical recovery location.
+        let folder = development ? "Ecru-Dev" : "LeafInk-development"
+        return FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0]
+            .appendingPathComponent(folder,isDirectory:true)
+    }
     static func value(_ key: String) -> String? {
         let environment = ProcessInfo.processInfo.environment
         return environment[key] ?? environment[key.replacingOccurrences(of: "ECRU_", with: "LEAFINK_")]

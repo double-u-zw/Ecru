@@ -6,7 +6,7 @@
 
 **公开下载：0.5.0-beta.1（12）** · Apple Silicon · macOS 13+
 
-当前源码：**0.5.0-beta.2-rc.1（13）** · Apache-2.0 · Apple Silicon（arm64）与 Intel（x86_64）独立安装包。beta.2 安装包待 UI 验收后发布。
+当前源码：**0.5.0-beta.2-rc.2（14）** · Apache-2.0 · Apple Silicon（arm64）与 Intel（x86_64）独立安装包。beta.2 安装包待 UI 验收后发布。
 
 [下载 DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.1/Ecru-0.5.0-beta.1-arm64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 

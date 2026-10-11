@@ -31,6 +31,17 @@ enum UITestDriver {
                 r.window?.makeKeyAndOrderFront(nil);settle(r)
                 try expect(NSApp.isActive && r.window?.isKeyWindow == true,"native reader activates")
                 try expect(r.window?.title==input.lastPathComponent && r.window?.subtitle=="","filename is the only window title")
+                r.pdfView.autoScales=false;r.pdfView.scaleFactor=1;settle(r)
+                let scroll=r.pdfView.documentView!.enclosingScrollView!
+                let clip=scroll.contentView
+                clip.scroll(to:NSPoint(x:0,y:scroll.documentView!.bounds.height-clip.bounds.height))
+                scroll.reflectScrolledClipView(clip);settle(r)
+                try expect(r.testPageField.stringValue==String(r.session.document.pageCount),"page indicator follows scrolling to the last page")
+                clip.scroll(to:.zero);scroll.reflectScrolledClipView(clip);settle(r)
+                try expect(r.testPageField.stringValue=="1","page indicator follows scrolling back to the first page")
+                r.pdfView.go(to:r.session.document.page(at:1)!);settle(r)
+                try expect(r.testPageField.stringValue=="2","page indicator follows a PDF page jump")
+                r.pdfView.go(to:r.session.document.page(at:0)!);settle(r)
                 for appearance in [NSAppearance.Name.aqua,.darkAqua] {
                     r.window?.appearance=NSAppearance(named:appearance)
                     for width in [820,1160,1440] {

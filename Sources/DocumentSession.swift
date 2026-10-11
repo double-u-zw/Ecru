@@ -138,12 +138,7 @@ final class DocumentSession {
         originalStructure = PDFStructure(document)
         originalContent = try PDFContentIntegrity(data)
         savedRevision = revision
-        if let override = EcruEnvironment.value("ECRU_DATA_DIR"), !override.isEmpty {
-            dataDirectory = URL(fileURLWithPath: override, isDirectory: true)
-        } else {
-            dataDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("LeafInk-development", isDirectory: true)
-        }
+        dataDirectory = EcruEnvironment.applicationSupportDirectory
         importEditableInk()
     }
 

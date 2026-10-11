@@ -2,7 +2,11 @@
 set -euo pipefail
 cd "${0:A:h:h}"
 source Scripts/native-ink-flags.sh
-task_destination="${ECRU_APP_OUTPUT:-$PWD/output/Ecru.app}"
+task_variant="${ECRU_VARIANT:-release}"
+[[ "$task_variant" == release || "$task_variant" == development ]] || { print -u2 "ECRU_VARIANT must be release or development"; exit 1; }
+task_name="Ecru"
+[[ "$task_variant" != development ]] || task_name="Ecru Dev"
+task_destination="${ECRU_APP_OUTPUT:-$PWD/output/$task_name.app}"
 mkdir -p .build/module-cache output
 # Publish a complete bundle: no abandoned executables or icon resources survive.
 task_bundle="$(mktemp -d "$PWD/.build/app-bundle.XXXXXX")/Ecru.app"
@@ -25,6 +29,20 @@ cp "$ecru_native_cache/build/_deps/abseil-cpp-src/LICENSE" "$task_bundle/Content
 cp -R Resources/Licenses/. "$task_bundle/Contents/Resources/Licenses/"
 cp -R Resources/Preview "$task_bundle/Contents/Resources/"
 cp -R Resources/*.lproj "$task_bundle/Contents/Resources/"
+# A separately registered development app never shares preferences or drafts.
+if [[ "$task_variant" == development ]]; then
+ python3 - "$task_bundle" <<'PYDEV'
+from pathlib import Path
+import plistlib,sys
+bundle=Path(sys.argv[1]);path=bundle/'Contents/Info.plist'
+info=plistlib.loads(path.read_bytes())
+info.update(CFBundleIdentifier='local.ecru.reader.development',CFBundleName='Ecru Dev',CFBundleDisplayName='Ecru Dev',EcruBuildChannel='development')
+for document in info.get('CFBundleDocumentTypes',[]):document['LSHandlerRank']='Alternate'
+path.write_bytes(plistlib.dumps(info))
+for strings in (bundle/'Contents/Resources').glob('*.lproj/InfoPlist.strings'):
+ strings.write_text('"CFBundleDisplayName" = "Ecru Dev";\n"CFBundleName" = "Ecru Dev";\n')
+PYDEV
+fi
 task_icon_digest="$(shasum -a 256 Resources/Branding/AppIcon.icns | cut -c1-12)"
 task_icon_name="EcruIcon-$task_icon_digest"
 cp Resources/Branding/AppIcon.icns "$task_bundle/Contents/Resources/$task_icon_name.icns"

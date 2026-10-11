@@ -136,7 +136,10 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         notifications.append(NotificationCenter.default.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self] _ in self?.refresh(); self?.canvas.presentation.invalidateAll(); self?.canvas.needsDisplay = true; self?.positionNoteUI() })
         if let clip=pdfView.documentView?.enclosingScrollView?.contentView {
             clip.postsBoundsChangedNotifications=true
-            notifications.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:clip,queue:.main) { [weak self] _ in self?.canvas.refreshToolCursor() })
+            notifications.append(NotificationCenter.default.addObserver(forName:NSView.boundsDidChangeNotification,object:clip,queue:.main) { [weak self] _ in
+                self?.canvas.refreshToolCursor()
+                self?.updatePageIndicator()
+            })
         }
         for name in [NSApplication.didBecomeActiveNotification,NSApplication.didResignActiveNotification] {
             notifications.append(NotificationCenter.default.addObserver(forName:name,object:nil,queue:.main) { [weak self] _ in self?.canvas.refreshToolCursor() })
@@ -237,17 +240,31 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     private func installReadingToolbar() {
         // AppKit centers the document item in a single compact native toolbar.
         // NSWindow retains its document identity for Window menus and edited state.
-        let navigation = NSView(frame:NSRect(x:0,y:0,width:100,height:28))
-        for (i,b) in [sidebarButton,back,forward].enumerated() {
-            navigation.addSubview(b); b.frame=NSRect(x:i*34,y:0,width:30,height:28)
+        let navigation = NSStackView(views:[sidebarButton,back,forward])
+        navigation.orientation = .horizontal; navigation.alignment = .centerY
+        navigation.spacing = 6; navigation.distribution = .fillEqually
+        for b in [sidebarButton,back,forward] {
+            b.imagePosition = .imageOnly
+            b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize:14,weight:.regular)
+            b.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([b.widthAnchor.constraint(equalToConstant:26),b.heightAnchor.constraint(equalToConstant:26)])
         }
-        let pagination = NSView(frame:NSRect(x:0,y:0,width:100,height:28))
-        pagination.addSubview(pageField);pagination.addSubview(pageCount)
-        pageField.frame=NSRect(x:0,y:3,width:48,height:23)
-        pageCount.frame=NSRect(x:54,y:4,width:46,height:21)
+        pageField.isBezeled = false; pageField.isBordered = false; pageField.drawsBackground = false
+        pageField.alignment = .right; pageField.focusRingType = .none
+        pageCount.font = pageField.font
+        let pagination = NSStackView(views:[pageField,pageCount])
+        pagination.orientation = .horizontal; pagination.alignment = .centerY
+        pagination.spacing = 4; pagination.distribution = .fill
+        for field in [pageField,pageCount] {
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.heightAnchor.constraint(equalToConstant:20).isActive = true
+        }
+        pageField.widthAnchor.constraint(equalToConstant:34).isActive = true
+        zoom.isBordered = false; zoom.font = .monospacedDigitSystemFont(ofSize:13,weight:.regular)
+        zoom.controlSize = .small
         searchButton.title="";searchButton.imagePosition = .imageOnly
         searchButton.toolTip="搜索（⌘F）";searchButton.setAccessibilityLabel("搜索")
-        for (key,label,view,width) in [("navigation","阅读导航",navigation,100.0),("page","页码",pagination,100.0),("zoom","缩放",zoom,122.0),("search","搜索",searchButton,30.0),("status","保存状态",statusButton,26.0)] {
+        for (key,label,view,width) in [("navigation","阅读导航",navigation,90.0),("page","页码",pagination,78.0),("zoom","缩放",zoom,92.0),("search","搜索",searchButton,30.0),("status","保存状态",statusButton,26.0)] {
             let id=NSToolbarItem.Identifier(key),item=NSToolbarItem(itemIdentifier:id)
             view.removeFromSuperview();view.setFrameSize(NSSize(width:width,height:28))
             item.label=label;item.paletteLabel=label;item.view=view
@@ -326,6 +343,19 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         table.rowHeight = searchVisible ? 72 : (outlineRows.isEmpty ? 56 : 32)
         canvas.needsDisplay = true; positionNoteUI()
     }
+    private func updatePageIndicator() {
+        guard !rebinding else { return }
+        // In continuous reading PDFKit's currentPage can lag behind the viewport.
+        // Observe scrolling directly and identify the page at the reading center.
+        let center = CGPoint(x:pdfView.bounds.midX,y:pdfView.bounds.midY)
+        if pageField.currentEditor() == nil,
+           let page = pdfView.page(for:center,nearest:true) ?? pdfView.currentPage {
+            let index = session.document.index(for:page)
+            if index != NSNotFound { pageField.stringValue = String(index+1) }
+        }
+        pageCount.stringValue = "/ \(session.document.pageCount)"
+    }
+
     func refresh() {
         canvas.refreshToolCursor()
         window?.title = session.fileURL.lastPathComponent
@@ -341,8 +371,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         statusButton.imagePosition = .imageOnly
         statusButton.symbolConfiguration=NSImage.SymbolConfiguration(pointSize:session.conflictDetected || session.annotationReadOnly ? 13 : 6,weight:.regular)
         statusButton.contentTintColor = session.conflictDetected ? .systemRed : (session.isModified ? .secondaryLabelColor : nil)
-        if let page = pdfView.currentPage { pageField.stringValue = String(session.document.index(for: page)+1) }
-        pageCount.stringValue = "/ \(session.document.pageCount)"
+        updatePageIndicator()
         if let item = currentZoomItem { zoom.menu?.removeItem(item); currentZoomItem = nil }
         if pdfView.autoScales { zoom.selectItem(at:0) }
         else {
@@ -772,7 +801,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         }
     }
     private var positionURL: URL {
-        let base = EcruEnvironment.value("ECRU_DATA_DIR").map { URL(fileURLWithPath:$0) } ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/LeafInk-development")
+        let base = EcruEnvironment.applicationSupportDirectory
         try? FileManager.default.createDirectory(at:base,withIntermediateDirectories:true)
         return base.appendingPathComponent("reading-positions.plist")
     }
@@ -829,6 +858,14 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
                 if let view=toolbarItems[NSToolbarItem.Identifier(id)]?.view {
                     let rect=view.convert(view.bounds,to:nil)
                     if titleRect.intersection(rect).width>1 {issues.append("document title overlaps "+id)}
+                }
+            }
+        }
+        for (id, controls) in [("navigation", [sidebarButton,back,forward] as [NSView]), ("page",[pageField,pageCount] as [NSView])] {
+            if let group = toolbarItems[NSToolbarItem.Identifier(id)]?.view {
+                for control in controls {
+                    let rect = control.convert(control.bounds,to:group)
+                    if abs(rect.midY-group.bounds.midY)>1 { issues.append(id+" control not vertically centered") }
                 }
             }
         }
