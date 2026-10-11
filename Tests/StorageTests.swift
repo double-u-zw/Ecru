@@ -20,6 +20,14 @@ enum StorageTests {
             let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             try? Data(contentsOf: session.fileURL).write(to: root.appendingPathComponent(".build/pdf-save-original.pdf"))
             try? session.portableDocument()?.dataRepresentation()?.write(to: root.appendingPathComponent(".build/pdf-save-export.pdf"))
+            _ = session.portableDocument()?.write(to: root.appendingPathComponent(".build/pdf-save-write.pdf"))
+            if let fromURL = PDFDocument(url: session.fileURL) {
+                let probe = PDFAnnotation(bounds: CGRect(x: 20, y: 20, width: 30, height: 30), forType: .text, withProperties: nil)
+                probe.contents = "Synthetic URL serialization probe"
+                fromURL.page(at: 0)?.addAnnotation(probe)
+                _ = fromURL.write(to: root.appendingPathComponent(".build/pdf-save-url-write.pdf"))
+                try? fromURL.dataRepresentation()?.write(to: root.appendingPathComponent(".build/pdf-save-url-data.pdf"))
+            }
         }
         return result!
     }
