@@ -1,0 +1,25 @@
+name: 问题反馈 / Bug report
+description: 报告安装、阅读、书写或保存问题
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Ecru 版本 / Version
+      placeholder: 0.5.0-beta.1 (12)
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: macOS、芯片与输入设备 / Environment
+      placeholder: macOS 27.0.1, M 系列, 鼠标/触控板/数位板
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 复现步骤、实际与预期结果 / Steps and expected result
+      description: 如果适合公开分享，可附截图或最小示例 PDF；请勿上传私人文档。
+    validations:
+      required: true
