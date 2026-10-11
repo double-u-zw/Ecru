@@ -424,9 +424,10 @@ Version CalculateMinimumRequiredVersion(BrushPaint::SelfOverlap self_overlap) {
 
 namespace {
 
-using ::ink::brush_internal::CalculateMinimumRequiredVersion;
+// Ecru modification (2026): distinct helper names avoid an older Apple Clang
+// using-declaration lookup ambiguity. Version calculations are unchanged.
 
-Version CalculateMinimumRequiredVersion(
+Version CalculateTextureMinimumRequiredVersion(
     const BrushPaint::TilingTexture& layer) {
   return std::max({CalculateMinimumRequiredVersion(layer.origin),
                    CalculateMinimumRequiredVersion(layer.size_unit),
@@ -435,7 +436,7 @@ Version CalculateMinimumRequiredVersion(
                    CalculateMinimumRequiredVersion(layer.blend_mode)});
 }
 
-Version CalculateMinimumRequiredVersion(
+Version CalculateTextureMinimumRequiredVersion(
     const BrushPaint::StampingTexture& layer) {
   // LINT.IfChange(animation_defaults)
   if (layer.animation_frames != 1 || layer.animation_rows != 1 ||
@@ -455,17 +456,16 @@ Version CalculateMinimumRequiredVersion(
 
 Version CalculateMinimumRequiredVersion(const BrushPaint::TextureLayer& layer) {
   return std::visit(
-      [](const auto& layer) { return CalculateMinimumRequiredVersion(layer); },
+      [](const auto& layer) {
+        return CalculateTextureMinimumRequiredVersion(layer);
+      },
       layer);
 }
 
 Version CalculateMinimumRequiredVersion(const BrushPaint& paint) {
   Version max_version = CalculateMinimumRequiredVersion(paint.self_overlap);
   for (const BrushPaint::TextureLayer& layer : paint.texture_layers) {
-    // Ecru modification (2026): qualify this query for older Apple Clang lookup.
-    // The selected overload and version calculation are unchanged.
-    max_version = std::max(
-        max_version, ::ink::brush_internal::CalculateMinimumRequiredVersion(layer));
+    max_version = std::max(max_version, CalculateMinimumRequiredVersion(layer));
   }
   for (const ColorFunction& color_function : paint.color_functions) {
     max_version =

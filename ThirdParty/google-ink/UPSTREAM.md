@@ -24,16 +24,14 @@ executables. It is not the production pen's input model or brush generator.
 Brush geometry and input algorithms remain upstream-original. Ecru models position once
 in `Sources/Native/AdaptivePositionModel.h`, then supplies the result to upstream
 `PassthroughModel`. Brush behavior, shape generation and geometry are unchanged.
-The build 7 sliding-window derivative is retained only under
-`Tests/ReferenceGoogleInkV7` for reproducible response comparisons; it is not linked
-into the app. The new filter is Ecru code inspired by the 1 Euro paper:
+The new filter is Ecru code inspired by the 1 Euro paper:
 https://gery.casiez.net/publications/CHI2012-casiez.pdf
 
 ## Apple Clang compatibility patch (beta.2)
 
-`ink/brush/brush_paint.cc` qualifies the TextureLayer version query with
-`::ink::brush_internal::`. Older Apple Clang reports the unqualified lookup as
-ambiguous between the header declaration and implementation. The same overload
-and calculation are retained; no input, brush or geometry behavior is changed.
-The file carries an Ecru modification notice. All other vendored files retain
-the pinned upstream content.
+`ink/brush/brush_paint.cc` gives its two anonymous texture-version helpers distinct
+names and removes their using-declaration. Older Apple Clang otherwise reports
+ambiguous lookup between a header declaration and its implementation. Only helper
+names and lookup change; all calculations, input, brush and geometry behavior are
+unchanged. The file carries an Ecru modification notice. All other vendored files
+retain the pinned upstream content.
