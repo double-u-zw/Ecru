@@ -1,0 +1,11 @@
+Ecru
+Copyright 2026 double-u-zw and Ecru contributors.
+
+Ecru first-party source, documentation and project artwork are licensed under
+Apache License 2.0, except material with a separate license or attribution.
+The project includes Google Ink, Ink Stroke Modeler, Abseil, perfect-freehand,
+markdown-it, markdown-it-texmath, KaTeX and KaTeX fonts. Their copyright and
+license notices are preserved in THIRD_PARTY_NOTICES.md and licenses/ (public
+repository), or Distribution/licenses/ (development checkout), and in the App.
+Third-party components retain their respective Apache-2.0, MIT and SIL OFL 1.1
+licenses. This NOTICE does not change the license terms of any component.

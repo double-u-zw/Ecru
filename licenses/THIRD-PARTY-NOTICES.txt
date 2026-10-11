@@ -53,8 +53,8 @@ Original bundled fonts, with their Reserved Font Names and complete license:
 KaTeX-Fonts-OFL-1.1.txt
 
 Google Ink, Abseil and the other projects do not endorse Ecru.
-Their licenses apply to their respective components. First-party Ecru code,
-artwork and application remain separately owned; this binary Beta release
-does not grant a license to the private development source or history.
+Their licenses apply to their respective components. First-party Ecru source,
+documentation and project artwork are licensed under Apache License 2.0.
+See Ecru-Apache-2.0.txt and Ecru-NOTICE.txt. Private development history is excluded.
 Googletest is a build-time configuration dependency and is not shipped.
 Apple frameworks are provided by macOS and are not redistributed in this app.
