@@ -15,7 +15,7 @@ Ecru 的本地 PDF 阅读、手写及文字预览使用以下组件。完整版�
 
 [完整版权与集成声明](licenses/THIRD-PARTY-NOTICES.txt)
 
-Google Ink 仅对 brush_paint.cc 的版本查询增加命名空间限定，以兼容较旧 Apple Clang，计算与笔迹算法不变；其余上游源码与 Abseil 保持未修改；Ecru 自己实现输入模型、C 接口、日常笔刷及绘制适配。perfect-freehand 包含原生 Swift 移植及 Ecru 的轮廓适配，用于历史笔迹兼容；默认书写使用 Google Ink。Google Ink Stroke Modeler 保留在本地静态归档的历史代码路径中，不是默认笔的输入模型。
+Google Ink 仅调整 brush_paint.cc 两个私有版本查询辅助函数的命名，以兼容较旧 Apple Clang，计算与笔迹算法不变；其余上游源码与 Abseil 保持未修改；Ecru 自己实现输入模型、C 接口、日常笔刷及绘制适配。perfect-freehand 包含原生 Swift 移植及 Ecru 的轮廓适配，用于历史笔迹兼容；默认书写使用 Google Ink。Google Ink Stroke Modeler 保留在本地静态归档的历史代码路径中，不是默认笔的输入模型。
 
 Google Ink、Google Ink Stroke Modeler 与 Abseil 的指定上游版本均未发现独立 NOTICE 文件，保留原 LICENSE，并汇总版权声明。KaTeX 字体按其字体元数据中的 SIL Open Font License 分发，保留字体名称、版权声明与完整许可。
 
