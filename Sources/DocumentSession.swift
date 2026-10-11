@@ -561,6 +561,7 @@ final class DocumentSession {
                 guard PDFFidelity(reopened).signature == fidelity.signature else {
                     if EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
                         print("EXPECTED", fidelity.signature, "ACTUAL", PDFFidelity(reopened).signature)
+                        fflush(stdout)
                     }
                     throw DocumentSessionError.validation("批注、链接或可编辑笔迹信息改变")
                 }

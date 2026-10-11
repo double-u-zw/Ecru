@@ -58,6 +58,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     private let pageField = NSTextField()
     private let pageCount = NSTextField(labelWithString: "")
     private let zoom = NSPopUpButton()
+    private var currentZoomItem: NSMenuItem?
     private let searchButton = NSButton()
     private let sidebarButton = NSButton()
     private let back = NSButton()
@@ -342,8 +343,16 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         statusButton.contentTintColor = session.conflictDetected ? .systemRed : (session.isModified ? .secondaryLabelColor : nil)
         if let page = pdfView.currentPage { pageField.stringValue = String(session.document.index(for: page)+1) }
         pageCount.stringValue = "/ \(session.document.pageCount)"
+        if let item = currentZoomItem { zoom.menu?.removeItem(item); currentZoomItem = nil }
         if pdfView.autoScales { zoom.selectItem(at:0) }
-        else { zoom.title = "\(Int(pdfView.scaleFactor*100))%" }
+        else {
+            let title = "\(Int(pdfView.scaleFactor*100))%"
+            if let item = zoom.item(withTitle:title) { zoom.select(item) }
+            else {
+                let item = NSMenuItem(title:title,action:nil,keyEquivalent:"")
+                zoom.menu?.addItem(item); zoom.select(item); currentZoomItem = item
+            }
+        }
         back.isEnabled = historyIndex > 0; forward.isEnabled = historyIndex >= 0 && historyIndex < navigationHistory.count-1
         undoButton.isEnabled = session.canUndo; redoButton.isEnabled = session.canRedo
         for b in toolButtons {
@@ -802,6 +811,8 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func testOpenColor() { (parameters.arrangedSubviews.first as? NSButton)?.performClick(nil) }
     func testGoBack() { goBack() }
     #if ECRU_UI_TESTS
+    func testChooseZoom(_ title:String) { zoom.selectItem(withTitle:title); changeZoom() }
+    var testZoomMenuTitles:[String] { zoom.itemTitles }
     func testResizeSidebar(_ width:CGFloat) {body.setPosition(splitView(body,constrainSplitPosition:width,ofSubviewAt:0),ofDividerAt:0);layoutViews()}
     var testSidebarWidth:CGFloat {sidebar.frame.width}
     func testOpenWidth() {(parameters.arrangedSubviews.last as? NSButton)?.performClick(nil)}

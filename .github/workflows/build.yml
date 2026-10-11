@@ -23,6 +23,10 @@ jobs:
           node-version: '22'
       - name: Install test dependencies
         run: python3 -m pip install -r Tests/requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: .build/native-ink
+          key: native-${{ matrix.runner }}-${{ env.ImageVersion }}-${{ hashFiles('Sources/Native/**', 'ThirdParty/**') }}
       - name: Build runner architecture
         run: ECRU_RELEASE=1 zsh Scripts/build.sh
       - name: Core tests on the runner architecture

@@ -50,6 +50,19 @@ enum UITestDriver {
                 let page=r.session.document.page(at:0)!
                 r.navigate(to:PDFDestination(page:page,at:CGPoint(x:0,y:792)))
                 r.pdfView.autoScales=false;r.pdfView.scaleFactor=0.8;settle(r)
+                r.testChooseZoom("200%");settle(r)
+                try expect(abs(r.pdfView.scaleFactor-2)<0.001,"zoom preset enlarges the PDF to 200 percent")
+                r.testChooseZoom("100%");settle(r)
+                try expect(abs(r.pdfView.scaleFactor-1)<0.001,"zoom preset returns to 100 percent")
+                let zoomCenter=r.canvas.convert(CGPoint(x:r.canvas.bounds.midX,y:r.canvas.bounds.midY),to:nil)
+                let initialZoom=r.pdfView.scaleFactor
+                for _ in 0..<120 {r.canvas.zoomPDF(logDelta:0.001,from:zoomCenter,to:zoomCenter)}
+                try expect(abs(r.pdfView.scaleFactor/initialZoom-exp(0.12))<0.001 && r.testZoomMenuTitles.count<=9,"continuous zoom changes scale without accumulating percentage menu entries")
+                r.testChooseZoom("适合宽度");settle(r)
+                try expect(r.pdfView.autoScales,"fit width remains selectable after continuous zoom")
+                r.testChooseZoom("适合页面");settle(r)
+                try expect(!r.pdfView.autoScales && r.pdfView.scaleFactor>0 && r.testZoomMenuTitles.prefix(2)==["适合宽度","适合页面"],"fit page retains its preset and changes scale")
+                r.pdfView.autoScales=false;r.pdfView.scaleFactor=0.8;settle(r)
                 r.testSelectTool(.pen)
                 drag(r,(0...70).map{CGPoint(x:120+Double($0)*2,y:360)})
                 try expect(r.session.inkStrokes(on:page).count==1,"Google Ink writes one reversible stroke")

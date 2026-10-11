@@ -4,11 +4,16 @@ import Darwin
 
 @main enum AnnotationTests {
     static var checks=0
-    static func check(_ b: @autoclosure ()->Bool,_ s:String) { checks+=1; if !b(){fatalError("FAIL: "+s)}; print("PASS: "+s) }
+    static func check(_ b: @autoclosure ()->Bool,_ s:String) { checks+=1; if !b(){fatalError("FAIL: "+s)}; print("PASS: "+s); fflush(stdout) }
     static func save(_ s:DocumentSession) throws {
         var result:Result<SaveOutcome,Error>?
         s.save {result=$0}; let limit=Date().addingTimeInterval(15)
         while result == nil && Date()<limit { RunLoop.current.run(until:Date().addingTimeInterval(0.01)) }
+        if case .failure = result!, EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
+            let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath)
+            try? Data(contentsOf:s.fileURL).write(to:root.appendingPathComponent(".build/pdf-save-annotation-original.pdf"))
+            try? s.portableDocument()?.dataRepresentation()?.write(to:root.appendingPathComponent(".build/pdf-save-annotation-export.pdf"))
+        }
         _ = try result!.get()
     }
     static func main() throws {
