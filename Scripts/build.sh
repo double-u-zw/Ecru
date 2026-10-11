@@ -1,12 +1,16 @@
 #!/bin/zsh
 set -euo pipefail
 cd "${0:A:h:h}"
-source Scripts/native-ink-flags.sh
-task_variant="${ECRU_VARIANT:-release}"
+task_variant="${ECRU_VARIANT:-development}"
 [[ "$task_variant" == release || "$task_variant" == development ]] || { print -u2 "ECRU_VARIANT must be release or development"; exit 1; }
 task_name="Ecru"
 [[ "$task_variant" != development ]] || task_name="Ecru Dev"
 task_destination="${ECRU_APP_OUTPUT:-$PWD/output/$task_name.app}"
+# Build candidates separately; updating an installed daily App is a reviewed step.
+if [[ "${task_destination:A}" == /Applications/Ecru.app || "${task_destination:A}" == "$HOME/Applications/Ecru.app" ]]; then
+ print -u2 "Build into output first. Update the installed Ecru separately after review."; exit 1
+fi
+source Scripts/native-ink-flags.sh
 mkdir -p .build/module-cache output
 # Publish a complete bundle: no abandoned executables or icon resources survive.
 task_bundle="$(mktemp -d "$PWD/.build/app-bundle.XXXXXX")/Ecru.app"

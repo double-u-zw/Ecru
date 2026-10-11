@@ -97,10 +97,10 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 git clone https://github.com/double-u-zw/Ecru.git
 cd Ecru
 zsh Scripts/build.sh
-open output/Ecru.app
+open "output/Ecru Dev.app"
 ```
 
-需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认构建本机架构的 App，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
+需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认构建本机架构的 Ecru Dev，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
 
 - `Sources/`：AppKit 阅读窗口、PDF 编辑/恢复、Swift 笔迹适配与 C++ Google Ink 桥接。
 - `Resources/`：图标、本地化与离线 Markdown/数学预览。

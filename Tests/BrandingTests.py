@@ -1,11 +1,15 @@
 """Bundle and current brand audit. Historical PDF identifiers are data contracts."""
 from pathlib import Path
-import plistlib, hashlib, subprocess
+import plistlib, hashlib, subprocess, os
 root=Path(__file__).resolve().parents[1]
-app=root/'output/Ecru.app'
+variant=os.environ.get('ECRU_VARIANT','development')
+name='Ecru Dev' if variant=='development' else 'Ecru'
+app=Path(os.environ.get('ECRU_TEST_APP_PATH',root/'output'/f'{name}.app'))
 info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
 assert info['CFBundleExecutable']=='Ecru'
-assert info['CFBundleIdentifier']=='local.leafink.reader.development'
+assert info['CFBundleIdentifier']==('local.ecru.reader.development' if variant=='development' else 'local.leafink.reader.development')
+assert info['CFBundleDisplayName']==name
+assert (info.get('EcruBuildChannel')=='development')==(variant=='development')
 expected=plistlib.loads((root/'Scripts/Info.plist').read_bytes())
 for key in ['CFBundleShortVersionString','CFBundleVersion','EcruReleaseVersion','LSMinimumSystemVersion']:
     assert info[key]==expected[key],f'Bundle/source version mismatch: {key}'
@@ -23,7 +27,7 @@ assert (app/'Contents/MacOS/Ecru').is_file()
 assert len(list((app/'Contents/MacOS').iterdir()))==1
 icon=(app/'Contents/Resources'/info['CFBundleIconFile']).with_suffix('.icns')
 assert hashlib.sha256(icon.read_bytes()).digest()==hashlib.sha256((root/'Resources/Branding/AppIcon.icns').read_bytes()).digest()
-for language,name in [('en','Ecru'),('zh-Hans','Ecru'),('zh-Hant','Ecru')]:
+for language in ['en','zh-Hans','zh-Hant']:
     localization=(app/'Contents/Resources'/f'{language}.lproj/InfoPlist.strings').read_text()
     assert name in localization
 subprocess.run(['codesign','--verify','--strict',str(app)],check=True)

@@ -5,7 +5,11 @@ cd "${0:A:h:h}"
 source Scripts/native-ink-flags.sh
 mkdir -p .build/test-binaries .build/module-cache output/pdf
 [[ -f output/pdf/reader-test-original.pdf ]] || python3 Scripts/make_fixture.py
-[[ -x output/Ecru.app/Contents/MacOS/Ecru ]] || ECRU_ARCH="$ecru_arch" zsh Scripts/build.sh
+task_test_variant="${ECRU_VARIANT:-development}"
+task_test_name="Ecru"
+[[ "$task_test_variant" != development ]] || task_test_name="Ecru Dev"
+export ECRU_TEST_APP_PATH="$PWD/output/$task_test_name.app"
+[[ -x "$ECRU_TEST_APP_PATH/Contents/MacOS/Ecru" ]] || ECRU_ARCH="$ecru_arch" zsh Scripts/build.sh
 flags=(-swift-version 5 -target "$ecru_arch-apple-macosx13.0" -module-cache-path "$PWD/.build/module-cache")
 if [[ "${1:-}" == "--ui" ]]; then
   task_bundle="$PWD/.build/test-binaries/PublicWindow-$ecru_arch.app"

@@ -5,6 +5,7 @@ Reads sources/binary only. Does not run Ecru or interact with the keyboard.
 from pathlib import Path
 import re
 import subprocess
+import os
 
 root = Path(__file__).resolve().parents[1]
 prohibited = re.compile(
@@ -30,10 +31,12 @@ assert "CFMachPortInvalidate(tap)" in probe and "IOHIDManagerClose(manager" in p
 assert not re.search(r"CGEventPost|\.post\s*\(|keyboardEventSource|CGRequestListenEventAccess|kIOHIDOptionsTypeSeizeDevice", probe)
 assert '? 30 : 5' in probe
 print("PASS: optional diagnostic is read-only, bounded and releases its tap/device resources")
-binary = root / "output/Ecru.app/Contents/MacOS/Ecru"
+variant=os.environ.get('ECRU_VARIANT','development')
+name='Ecru Dev' if variant=='development' else 'Ecru'
+binary=Path(os.environ.get('ECRU_TEST_APP_PATH',root/'output'/f'{name}.app'))/'Contents/MacOS/Ecru'
 if binary.exists():
     symbols = subprocess.check_output(["nm", "-u", str(binary)], text=True)
     assert not re.search(r"CGEvent(?:Post|Tap|CreateKeyboard)|IOHIDPostEvent|_(?:posix_spawn|execve)", symbols)
     print("PASS: installed bundle has no system keyboard-post/tap or input helper spawn imports")
 else:
-    raise AssertionError("Build output/Ecru.app before checking its capability boundary")
+    raise AssertionError("Build the selected App variant before checking its capability boundary")

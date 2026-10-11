@@ -17,10 +17,11 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r Tests/requirements.txt
 zsh Scripts/build.sh
-open output/Ecru.app
+open "output/Ecru Dev.app"
 ```
 
-The default builds the **host architecture**. Set `ECRU_ARCH=arm64` or
+The default builds **Ecru Dev** for the **host architecture**, into
+`output/Ecru Dev.app`. It does not install or replace the daily Ecru application. Set `ECRU_ARCH=arm64` or
 `ECRU_ARCH=x86_64` to choose explicitly. Each native dependency is built separately
 into `.build/native-ink/<architecture>/`. Swift, C++ and dependencies target macOS
 13.0. Running x86_64 executables/tests on Apple Silicon requires Rosetta 2.
@@ -73,13 +74,19 @@ Developer ID and Apple notarization require the maintainer's credentials.
 
 `.github/workflows/build.yml` builds and tests on Apple Silicon and Intel runners,
 and uploads the runner architecture DMG as a workflow artifact. It does not publish Releases.
+Release scripts explicitly select `ECRU_VARIANT=release` and only produce candidate
+artifacts in the checkout. To build one release App, run
+`ECRU_VARIANT=release ECRU_RELEASE=1 zsh Scripts/build.sh`. The build script refuses
+to write directly to the installed Ecru in /Applications or ~/Applications. Review
+the development build first; update the daily App only after maintainer acceptance.
+
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
 Existing beta.1 assets and its tag must never be replaced.
 
 ## Keep development and release apps together
 
 ```sh
-ECRU_VARIANT=development zsh Scripts/build.sh
+zsh Scripts/build.sh
 open "output/Ecru Dev.app"
 ```
 

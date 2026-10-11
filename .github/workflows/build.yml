@@ -29,14 +29,14 @@ jobs:
           path: .build/native-ink
           key: native-${{ matrix.runner }}-${{ env.ImageVersion }}-${{ hashFiles('Sources/Native/**', 'ThirdParty/**') }}
       - name: Build runner architecture
-        run: ECRU_RELEASE=1 zsh Scripts/build.sh
+        run: ECRU_VARIANT=release ECRU_RELEASE=1 zsh Scripts/build.sh
       - uses: actions/cache/save@v4
         if: steps.native-cache.outputs.cache-hit != 'true'
         with:
           path: .build/native-ink
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Core tests on the runner architecture
-        run: ECRU_TEST_DIAGNOSTICS=1 zsh Scripts/test.sh
+        run: ECRU_VARIANT=release ECRU_TEST_DIAGNOSTICS=1 zsh Scripts/test.sh
       - name: Package architecture DMG
         run: ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
       - uses: actions/upload-artifact@v4
