@@ -4,7 +4,9 @@ Google Ink C++ core — Apache License 2.0
 Copyright 2024, 2025, 2026 Google LLC.
 https://github.com/google/ink
 Revision: b6def591a73a6aa0ffce1e58dc69b39de31484ba
-Upstream source closure is unmodified. Ecru supplies its own C ABI, input
+Ecru qualifies one brush_paint.cc version query for older Apple Clang lookup;
+the selected overload and calculation are unchanged. Other upstream files are
+unmodified. Ecru supplies its own C ABI, input
 position model, daily brush definition and Core Graphics outline adapter.
 License: Google-Ink.txt
 

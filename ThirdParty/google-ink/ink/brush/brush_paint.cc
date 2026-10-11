@@ -462,7 +462,10 @@ Version CalculateMinimumRequiredVersion(const BrushPaint::TextureLayer& layer) {
 Version CalculateMinimumRequiredVersion(const BrushPaint& paint) {
   Version max_version = CalculateMinimumRequiredVersion(paint.self_overlap);
   for (const BrushPaint::TextureLayer& layer : paint.texture_layers) {
-    max_version = std::max(max_version, CalculateMinimumRequiredVersion(layer));
+    // Ecru modification (2026): qualify this query for older Apple Clang lookup.
+    // The selected overload and version calculation are unchanged.
+    max_version = std::max(
+        max_version, ::ink::brush_internal::CalculateMinimumRequiredVersion(layer));
   }
   for (const ColorFunction& color_function : paint.color_functions) {
     max_version =

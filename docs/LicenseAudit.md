@@ -6,7 +6,9 @@ provides an explicit contributor patent grant. LICENSE and NOTICE cover the
 first-party project, with exceptions for separately attributed components.
 
 Google Ink, Stroke Modeler and Abseil retain Apache-2.0, pinned by full upstream
-commit. The selected upstream revisions have no separate root NOTICE file.
+commit. One documented Google Ink version-query qualification fixes older
+Apple Clang lookup without changing its calculation or stroke behavior. The
+selected upstream revisions have no separate root NOTICE file.
 perfect-freehand (including its attributed Swift port), markdown-it, texmath and
 KaTeX retain MIT notices. KaTeX font files retain SIL OFL 1.1, font copyrights and
 Reserved Font Names; they are not relicensed as Apache or MIT. Apple frameworks
