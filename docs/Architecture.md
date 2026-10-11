@@ -10,7 +10,7 @@
 - Bundle ID `local.leafink.reader.development`：维持安装身份、设置、最近文档和恢复关联。
 - Application Support `LeafInk-development` 与窗口 autosave `LeafInkReaderWindow`：保持现有偏好、草稿和阅读位置。
 - PDF 键 `/LeafInkStroke`、`/LeafInkDocument`、`/LeafInkMarkID`、`/LeafInkNoteID`、`/LeafInkAdapterID`，笔迹 annotation name 前缀及旧高亮内容 sentinel `LeafInk text highlight`：兼容旧文件和编辑身份，不改变存储格式。
-- 旧 `LEAFINK_*` 环境配置保留为兼容别名；新 `ECRU_*` 优先。公开源码/脚本/执行文件采用 Ecru 命名。基线对照脚本的旧编译标志仅用于构建冻结源码。
+- 旧 `LEAFINK_*` 环境配置保留为兼容别名；新 `ECRU_*` 优先。公开源码/脚本/执行文件采用 Ecru 命名。
 
 这些是数据契约，不是用户界面品牌。未来如迁移必须具备设置/草稿/最近文档及旧 PDF 双读验证和回退方案。本轮没有迁移身份或用户数据。新建文字批注的作者及说明使用 Ecru；旧 PDF 原文和原有批注不作品牌替换。
 
@@ -18,4 +18,4 @@
 
 正式构建不包含测试事件生成代码；UI runner 需 `ECRU_UI_TESTS` 显式编译。默认回归包含 InputBoundary 静态/二进制检查。输入诊断只能记录到显式指定目录，不将观察点事件时间解释为物理显示延迟。
 
-Tests/ObservationReference 是数值对照，Tests/UI 是实际 AppKit/PDFKit 窗口检查。自动化输入不代表真实 Pencil/PadInk 体验。第三方许可在 ThirdParty 与 Resources/Preview/vendor 中，不改写其材料。
+公开回归使用 Tests/InkLegacyReference.swift 作旧笔迹数值对照，Tests/PublicWindowChecks.swift 作实际 AppKit/PDFKit 窗口检查。自动化输入不代表真实 Pencil/PadInk 体验。第三方许可保留在 ThirdParty、Resources/Licenses 与 licenses/ 中。

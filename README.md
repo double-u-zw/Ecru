@@ -31,12 +31,13 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 芯片 | Apple Silicon（M 系列，arm64） |
+| 当前源码 / beta.2 候选 | Apple Silicon + Intel，Universal 2 |
+| 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
 | 本次实际验证 | Apple Silicon / macOS 27.0.1 |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
-本 Beta 未提供 Intel 安装包。较早的 macOS 与不同输入设备尚未逐一实机验收。
+已发布的 beta.1 安装包仅支持 Apple Silicon；beta.2 候选包含 Intel 架构。较早的 macOS 与不同输入设备尚未逐一实机验收。
 
 ## 下载与安装
 

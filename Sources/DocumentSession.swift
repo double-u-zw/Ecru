@@ -545,7 +545,13 @@ final class DocumentSession {
                 hook?()
                 guard let reopened = PDFDocument(data: bytes) else { throw DocumentSessionError.validation("重开失败") }
                 try Self.checkSupported(document: reopened, data: bytes)
-                guard PDFStructure(reopened) == structure else { throw DocumentSessionError.validation("原文、页框、旋转或目录改变") }
+                let reopenedStructure = PDFStructure(reopened)
+                guard reopenedStructure == structure else {
+                    if EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
+                        print("EXPECTED STRUCTURE", structure, "ACTUAL STRUCTURE", reopenedStructure)
+                    }
+                    throw DocumentSessionError.validation("原文、页框、旋转或目录改变")
+                }
                 guard try PDFContentIntegrity(bytes) == content else { throw DocumentSessionError.validation("原始页面内容或图像资源改变") }
                 guard PDFFidelity(reopened).signature == fidelity.signature else {
                     if EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
