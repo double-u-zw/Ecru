@@ -15,6 +15,12 @@ enum StorageTests {
         let deadline = Date().addingTimeInterval(10)
         while result == nil && Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) }
         check(result != nil, "save worker completion")
+        if case .failure = result!, EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
+            // This runner uses only isolated synthetic fixture copies.
+            let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+            try? Data(contentsOf: session.fileURL).write(to: root.appendingPathComponent(".build/pdf-save-original.pdf"))
+            try? session.portableDocument()?.dataRepresentation()?.write(to: root.appendingPathComponent(".build/pdf-save-export.pdf"))
+        }
         return result!
     }
     static func isSuccess(_ result: Result<SaveOutcome, Error>) -> Bool {

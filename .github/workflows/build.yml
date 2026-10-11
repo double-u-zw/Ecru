@@ -36,6 +36,11 @@ jobs:
       - name: Package Universal DMG
         run: ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
       - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: Synthetic-PDF-diagnostics-${{ matrix.runner }}
+          path: .build/pdf-save-*.pdf
+      - uses: actions/upload-artifact@v4
         with:
           name: Ecru-universal-${{ matrix.runner }}
           path: output/releases/*/
