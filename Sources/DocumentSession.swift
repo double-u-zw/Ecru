@@ -990,7 +990,7 @@ private struct PDFFidelity {
                        CGPDFDictionaryGetName(raw, "Subtype", &subtype), let subtype,
                        String(cString: subtype) == "Popup",
                        CGPDFDictionaryGetDictionary(raw, "Parent", &parent), let parent,
-                       CGPDFDictionaryGetString(parent, "LeafInkNoteID", &noteID), noteID != nil {
+                       CGPDFDictionaryGetString(parent, String(AnnotationPDF.noteKey.rawValue.dropFirst()), &noteID), noteID != nil {
                         ownedPopupIndices.insert(position)
                     }
                 }
