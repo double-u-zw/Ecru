@@ -2,7 +2,7 @@
 # Package the already-built, verified release App. Includes complete license notices.
 set -euo pipefail
 cd "${0:A:h:h}"
-task_app="$PWD/output/Ecru.app"
+task_app="${ECRU_APP_PATH:-$PWD/output/Ecru.app}"
 task_docs="${ECRU_RELEASE_DOCS:-$PWD/Distribution}"
 task_version="$(/usr/libexec/PlistBuddy -c 'Print :EcruReleaseVersion' "$task_app/Contents/Info.plist")"
 task_arch="$(lipo -archs "$task_app/Contents/MacOS/Ecru")"
@@ -27,6 +27,6 @@ cp "$task_docs/RELEASE_NOTES.md" "$task_release/RELEASE_NOTES.md"
 python3 - "$task_dmg" "$task_release/SHA256SUMS.txt" <<'PY'
 import hashlib,pathlib,sys
 p=pathlib.Path(sys.argv[1])
-pathlib.Path(sys.argv[2]).write_text(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n')
+pathlib.Path(sys.argv[2]).write_text(''.join(hashlib.sha256(item.read_bytes()).hexdigest()+'  '+item.name+'\n' for item in sorted(p.parent.glob('Ecru-*.dmg'))))
 PY
 print "Packaged: $task_dmg"

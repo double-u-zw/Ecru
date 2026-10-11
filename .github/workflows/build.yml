@@ -23,11 +23,11 @@ jobs:
           node-version: '22'
       - name: Install test dependencies
         run: python3 -m pip install -r Tests/requirements.txt
-      - name: Build Universal 2
+      - name: Build runner architecture
         run: ECRU_RELEASE=1 zsh Scripts/build.sh
       - name: Core tests on the runner architecture
         run: ECRU_TEST_DIAGNOSTICS=1 zsh Scripts/test.sh
-      - name: Package Universal DMG
+      - name: Package architecture DMG
         run: ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -37,5 +37,5 @@ jobs:
           include-hidden-files: true
       - uses: actions/upload-artifact@v4
         with:
-          name: Ecru-universal-${{ matrix.runner }}
+          name: Ecru-${{ matrix.runner }}
           path: output/releases/*/

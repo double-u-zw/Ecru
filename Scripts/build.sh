@@ -1,10 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
 cd "${0:A:h:h}"
-if [[ -z "${ECRU_ARCH:-}" ]]; then
-  zsh Scripts/build-universal.sh
-  exit
-fi
 source Scripts/native-ink-flags.sh
 task_destination="${ECRU_APP_OUTPUT:-$PWD/output/Ecru.app}"
 mkdir -p .build/module-cache output

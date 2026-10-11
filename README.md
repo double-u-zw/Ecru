@@ -6,7 +6,7 @@
 
 **公开下载：0.5.0-beta.1（12）** · Apple Silicon · macOS 13+
 
-当前源码：**0.5.0-beta.2-rc.1（13）** · Apache-2.0 · Universal 2（Apple Silicon + Intel）。beta.2 安装包待 UI 验收后发布。
+当前源码：**0.5.0-beta.2-rc.1（13）** · Apache-2.0 · Apple Silicon（arm64）与 Intel（x86_64）独立安装包。beta.2 安装包待 UI 验收后发布。
 
 [下载 DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.1/Ecru-0.5.0-beta.1-arm64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.1) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 
@@ -31,7 +31,7 @@
 
 | 项目 | 要求 |
 | --- | --- |
-| 当前源码 / beta.2 候选 | Apple Silicon + Intel，Universal 2 |
+| 当前源码 / beta.2 候选 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
 | 本次实际验证 | Apple Silicon / macOS 27.0.1 |
@@ -102,12 +102,12 @@ zsh Scripts/build.sh
 open output/Ecru.app
 ```
 
-需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认输出 Universal 2 App，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
+需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认构建本机架构的 App，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
 
 - `Sources/`：AppKit 阅读窗口、PDF 编辑/恢复、Swift 笔迹适配与 C++ Google Ink 桥接。
 - `Resources/`：图标、本地化与离线 Markdown/数学预览。
 - `ThirdParty/`：固定版本的上游源码和原许可证。
-- `Scripts/`、`Tests/`：构建、Universal 打包和可复现的公开回归。
+- `Scripts/`、`Tests/`：构建、分架构打包和可复现的公开回归。
 - `docs/`：架构与存储兼容约定；`assets/` 和 `licenses/` 保留产品分发资料。
 
-Ecru 第一方源码、文档与项目美术采用 [Apache-2.0](LICENSE)，允许修改和分发衍生版本。第三方材料保留各自 Apache-2.0、MIT 或 SIL OFL 1.1 许可，见 [NOTICE](NOTICE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。提交规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+Ecru 第一方源码、文档与项目美术采用 [Apache-2.0](LICENSE)，允许修改和分发衍生版本。第三方材料保留各自 Apache-2.0、MIT、IJG/BSD 或 SIL OFL 1.1 许可，见 [NOTICE](NOTICE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。提交规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。

@@ -20,13 +20,17 @@ zsh Scripts/build.sh
 open output/Ecru.app
 ```
 
-The default is **Universal 2 (arm64 + x86_64)**. Each native dependency is built
-separately into `.build/native-ink/<architecture>/`, then `lipo` combines the App
-executables. Resources and configuration must match between both builds.
-The deployment target is 13.0 for Swift, C++ and both dependency graphs.
-To build just one architecture, set `ECRU_ARCH=arm64` or `ECRU_ARCH=x86_64`.
-Cross-architecture builds of the full Universal App require no emulator.
-Running x86_64 tests on Apple Silicon requires Rosetta 2.
+The default builds the **host architecture**. Set `ECRU_ARCH=arm64` or
+`ECRU_ARCH=x86_64` to choose explicitly. Each native dependency is built separately
+into `.build/native-ink/<architecture>/`. Swift, C++ and dependencies target macOS
+13.0. Running x86_64 executables/tests on Apple Silicon requires Rosetta 2.
+
+Release distribution uses separate **arm64** and **x86_64** DMGs. To build both
+from one checkout, `Scripts/build-release.sh` builds the host first, reuses its
+native configuration receipt for the cross build, and packages two independent
+Apps. Cross compilation does not require an emulator. The optional
+`Scripts/build-universal.sh` remains available for developers who need Universal 2;
+it is not used for the beta.2 downloads.
 
 The first build downloads pinned Abseil, QPDF 12.4.2, libjpeg-turbo 3.2.0 and build-time GoogleTest configuration
 from their public upstream repositories. Google Ink, Stroke Modeler and the
@@ -54,17 +58,17 @@ See [candidate validation](docs/Validation.md) for the tested environments.
 ## Distribution
 
 ```sh
-ECRU_RELEASE=1 zsh Scripts/build.sh
-ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
+ECRU_RELEASE_DOCS="$PWD" zsh Scripts/build-release.sh
 ```
 
-Output: `output/releases/<EcruReleaseVersion>/Ecru-<version>-universal.dmg`,
+Output: `output/releases/<EcruReleaseVersion>/Ecru-<version>-arm64.dmg` and
+`Ecru-<version>-x86_64.dmg`,
 installation notes, release notes and SHA-256 checksums. `Scripts/Info.plist` owns
 App/release versions; native runtime metadata must match them. The release archive
 contains LICENSE, NOTICE and all third-party texts. Signing is currently ad hoc;
 Developer ID and Apple notarization require the maintainer's credentials.
 
 `.github/workflows/build.yml` builds and tests on Apple Silicon and Intel runners,
-and uploads a Universal DMG as a workflow artifact. It does not publish Releases.
+and uploads the runner architecture DMG as a workflow artifact. It does not publish Releases.
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
 Existing beta.1 assets and its tag must never be replaced.
