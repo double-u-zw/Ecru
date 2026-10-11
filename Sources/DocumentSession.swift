@@ -971,10 +971,33 @@ private struct PDFFidelity {
         var pages: [[String]] = []
         for index in 0..<document.pageCount {
             let start = records.count
-            let pageAnnotations = document.page(at:index)?.annotations ?? []
+            let page = document.page(at:index)
+            let pageAnnotations = page?.annotations ?? []
+            // Some PDFKit versions return a newly synthesized `note.popup`
+            // rather than the Popup object listed in the page. Resolve its
+            // actual /Parent from the PDF instead of comparing wrapper identity.
+            var ownedPopupIndices = Set<Int>()
+            var rawAnnotations: CGPDFArrayRef?
+            if let dictionary = page?.pageRef?.dictionary,
+               CGPDFDictionaryGetArray(dictionary, "Annots", &rawAnnotations),
+               let rawAnnotations, CGPDFArrayGetCount(rawAnnotations) == pageAnnotations.count {
+                for position in pageAnnotations.indices where pageAnnotations[position].type == "Popup" {
+                    var raw: CGPDFDictionaryRef?
+                    var parent: CGPDFDictionaryRef?
+                    var subtype: UnsafePointer<CChar>?
+                    var noteID: CGPDFStringRef?
+                    if CGPDFArrayGetDictionary(rawAnnotations, position, &raw), let raw,
+                       CGPDFDictionaryGetName(raw, "Subtype", &subtype), let subtype,
+                       String(cString: subtype) == "Popup",
+                       CGPDFDictionaryGetDictionary(raw, "Parent", &parent), let parent,
+                       CGPDFDictionaryGetString(parent, "LeafInkNoteID", &noteID), noteID != nil {
+                        ownedPopupIndices.insert(position)
+                    }
+                }
+            }
             let ownedPopups = pageAnnotations.filter { $0.value(forAnnotationKey:AnnotationPDF.noteKey) != nil }.compactMap(\.popup)
-            for annotation in pageAnnotations {
-                if ownedPopups.contains(where: { $0 === annotation }) { continue }
+            for (position, annotation) in pageAnnotations.enumerated() {
+                if ownedPopupIndices.contains(position) || ownedPopups.contains(where: { $0 === annotation }) { continue }
                 let rgb = annotation.color.usingColorSpace(.sRGB) ?? NSColor(srgbRed: 0, green: 0, blue: 0, alpha: 1)
                 // PDF /C stores RGB only. Translucency lives in the appearance
                 // stream, which is checked separately before committing bytes.
