@@ -84,9 +84,19 @@ final class PageInkView: NSView {
         changed.removeAll()
         let pageClip=dirtyRect.applying(transform.inverted()).insetBy(dx:-2,dy:-2)
         let candidates=index.candidates(in:pageClip);lastCandidateCount=candidates.count
-        for position in candidates {
+        let candidateIDs=Set(candidates.map{strokes[$0].id})
+        let images=Dictionary(uniqueKeysWithValues:reader.session.images(on:page).map{($0.id,$0)})
+        for id in reader.session.annotations.orderedIDs(on:reader.session.document.index(for:page)) {
+            if let original=images[id],let data=reader.session.annotations.imageAssets?[original.asset],let context=NSGraphicsContext.current?.cgContext {
+                let image=canvas.displayedImage(original)
+                guard image.bounds.intersects(pageClip) else{continue}
+                context.saveGState();context.concatenate(transform);let pixelSize=max(image.rect.width/image.crop.width,image.rect.height/image.crop.height)*scale*(window?.backingScaleFactor ?? 2)
+                let bucket=Int(pow(2,ceil(log2(max(256,min(32768,pixelSize))))))
+                ImageRenderer.draw(image,data:data,in:context,maximumDimension:bucket);context.restoreGState();continue
+            }
+            guard candidateIDs.contains(id),let position=index.positions[id] else{continue}
             let stroke=strokes[position]
-            if stroke.kind == .pen,(stroke.widthFactors == nil || stroke.appearance == .flowV1 || stroke.outlines != nil),stroke.rgba[3]==1,
+            if stroke.shape == nil,stroke.kind == .pen,(stroke.widthFactors == nil || stroke.appearance == .flowV1 || stroke.outlines != nil),stroke.rgba[3]==1,
                let context=NSGraphicsContext.current?.cgContext {
                 let path=paths[stroke.id] ?? InkPathCache();paths[stroke.id]=path;path.sync(stroke)
                 guard path.bounds.applying(transform).intersects(dirtyRect) else {continue}

@@ -192,7 +192,10 @@ import Darwin
         try AnnotationPDF.install(scanSession.annotations,into:scanPDF)
         try scanPDF.dataRepresentation()!.write(to:scanURL)
         let replacedScan=try DocumentSession.open(url:scanURL)
-        check(!replacedScan.annotationReadOnly && replacedScan.annotations.notes.first{$0.id==scanNote}?.locationUncertain == true,"scan image replacement flags original location without losing note")
+        check(replacedScan.annotations.notes.first{$0.id==scanNote}?.locationUncertain == true,"scan image replacement flags original location without losing note")
+        // Quartz may emit an orphan object with offset zero after replacing an image page.
+        // This new parser-risk policy protects such external rewrites rather than silently repairing them.
+        check(!replacedScan.annotationReadOnly || replacedScan.capabilities.features & 256 != 0,"external scan with structural warning is protected read-only")
         print("\(checks) annotation checks passed; fixtures: \(dir.path)")
     }
 }

@@ -22,7 +22,7 @@ struct WritingStroke {
   bool finished = false;
   std::vector<EcruInkVertex> outline;
 };
-ink::BrushFamily WritingFamily() {
+ink::BrushFamily WritingFamily(double sensitivity = -1) {
   ink::BrushTip tip;
   // Round, restrained daily pen. No direction/acceleration/velocity width,
   // rotating ellipse, or moving-tail width modulation at joins and reversals.
@@ -31,7 +31,7 @@ ink::BrushFamily WritingFamily() {
     B::ResponseNode{.response_curve={ink::EasingFunction::Linear{
       .points={{0.04f,0.18f},{0.12f,0.36f},{0.3f,0.61f},{0.6f,0.82f}}}}},
     B::DampingNode{.damp_over=B::ProgressDomain::kDistanceInMultiplesOfBrushSize,.strength=0.8f},
-    B::TargetNode{.target=B::Target::kSizeMultiplier,.target_modifier_range={0.86f,1.10f}}
+    B::TargetNode{.target=B::Target::kSizeMultiplier,.target_modifier_range={static_cast<float>(sensitivity < 0 ? 0.86 : 1-0.55*sensitivity),static_cast<float>(sensitivity < 0 ? 1.10 : 1+0.5*sensitivity)}}
   }}};
   return *ink::BrushFamily::Create(tip, {}, ink::BrushFamily::PassthroughModel{});
 }
@@ -66,13 +66,17 @@ extern "C" void *ecru_google_ink_create(double x,double y,double width,double pr
   return ecru_google_ink_create_scaled(x,y,width,pressure,2.0);
 }
 extern "C" void *ecru_google_ink_create_scaled(double x,double y,double width,double pressure,double view_scale) {
+  return ecru_google_ink_create_configured(x,y,width,pressure,view_scale,-1);
+}
+extern "C" void *ecru_google_ink_create_configured(double x,double y,double width,double pressure,double view_scale,double sensitivity) {
+  if(!std::isfinite(sensitivity) || sensitivity < -1 || sensitivity > 1) return nullptr;
   if(!std::isfinite(view_scale) || view_scale<=0) return nullptr;
   if(!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(width)||width<0.1||width>256) return nullptr;
   auto m=std::make_unique<WritingStroke>();m->x=x;m->y=y;m->last_x=x;m->last_y=y;
   // Freeze the interaction scale for this stroke. Geometry/width remain PDF points.
   m->modeling_scale=view_scale/2.0;
   if(std::isfinite(pressure)&&pressure>=0) m->pressure=std::clamp(static_cast<float>(pressure),0.0f,1.0f);
-  static const auto family=WritingFamily();
+  const auto family=WritingFamily(sensitivity);
   auto brush=ink::Brush::Create(family,ink::Color::Black(),width,std::min(0.025,width*0.015));
   if(!brush.ok()) return nullptr;
   m->stroke.Start(*brush);
@@ -102,7 +106,7 @@ extern "C" const char *ecru_google_ink_configuration(void) {
   static const std::string config = [] {
     using P = ecru::PositionDefaults;
     std::ostringstream s;
-    s << R"({"version":"0.5.0-beta.2","build":15,"recipe":"google-ink-daily-v5","model":"AdaptivePositionModel + Google Ink PassthroughModel","units":"interaction points at reference scale, seconds","referenceViewScale":2,"sourceSHA256":")"
+    s << R"({"version":"0.5.0-beta.3","build":19,"recipe":"google-ink-daily-v5","model":"AdaptivePositionModel + Google Ink PassthroughModel","units":"interaction points at reference scale, seconds","referenceViewScale":2,"sourceSHA256":")"
       << ECRU_POSITION_SHA256 << R"(","minimumDtSeconds":)" << P::minimum_dt_seconds
       << R"(,"pauseSeconds":)" << P::pause_seconds
       << R"(,"resumedDtSeconds":)" << P::resumed_dt_seconds

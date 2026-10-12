@@ -8,11 +8,12 @@ mkdir -p .build/test-binaries .build/module-cache output/pdf
 task_test_variant="${ECRU_VARIANT:-development}"
 task_test_name="Ecru"
 [[ "$task_test_variant" != development ]] || task_test_name="Ecru Dev"
-export ECRU_TEST_APP_PATH="$PWD/.build/apps/$task_test_name.app"
+export ECRU_TEST_APP_PATH="${ECRU_TEST_APP_PATH:-$PWD/.build/apps/$task_test_name.app}"
 [[ -x "$ECRU_TEST_APP_PATH/Contents/MacOS/Ecru" ]] || ECRU_ARCH="$ecru_arch" zsh Scripts/build.sh
 flags=(-swift-version 5 -target "$ecru_arch-apple-macosx13.0" -module-cache-path "$PWD/.build/module-cache")
 if [[ "${1:-}" == "--ui" ]]; then
-  task_bundle="$PWD/.build/test-binaries/PublicWindow-$ecru_arch.app"
+  task_bundle="$PWD/.build/apps/PublicWindow-$ecru_arch.app"
+  trap 'rm -rf "$task_bundle"' EXIT
   mkdir -p "$task_bundle/Contents/MacOS" "$task_bundle/Contents/Resources"
   xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" -O -D ECRU_UI_TESTS Sources/*.swift Tests/PublicWindowChecks.swift -o "$task_bundle/Contents/MacOS/PublicWindow" -framework AppKit -framework PDFKit -framework UniformTypeIdentifiers -framework WebKit
   cp -R Resources/Preview "$task_bundle/Contents/Resources/"
@@ -33,11 +34,12 @@ python3 Tests/InputBoundaryTests.py
 for task_test in Ink Storage Annotation InkNatural InkDamage; do
   case "$task_test" in
     Ink) task_sources=(Sources/InkCore.swift Tests/InkLegacyReference.swift);;
-    Storage|Annotation) task_sources=(Sources/InkCore.swift Sources/DocumentSession.swift Sources/PDFPagePreservation.swift Sources/AnnotationModel.swift);;
+    Storage|Annotation) task_sources=(Sources/InkCore.swift Sources/DocumentSession.swift Sources/PDFPagePreservation.swift Sources/AnnotationModel.swift Sources/ImageObjects.swift);;
     *) task_sources=(Sources/InkCore.swift);;
   esac
   xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" "${task_sources[@]}" "Tests/${task_test}Tests.swift" -o ".build/test-binaries/${task_test}Tests" -framework AppKit -framework PDFKit
   ".build/test-binaries/${task_test}Tests" "$PWD/.build/test-binaries/ink-roundtrip.pdf"
 done
 node Tests/PreviewTests.js
+zsh Scripts/test-image-objects.sh
 print "Public core regression passed ($ecru_arch)."

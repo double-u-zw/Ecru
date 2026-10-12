@@ -60,8 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             saving.window?.makeKeyAndOrderFront(nil); return
         }
         do {
-            let session = try DocumentSession.open(url:canonical)
+            guard let session = try unlockSession(canonical) else { return }
             let reader = ReaderWindow(session:session); readers.append(reader)
+            reader.didCreateAnnotationCopy = { [weak self] url in self?.open(url) }
             reader.didClose = { [weak self, weak reader] in
                 self?.readers.removeAll { $0 === reader }
             }
@@ -69,6 +70,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             NSDocumentController.shared.noteNewRecentDocumentURL(canonical); refreshRecent()
         } catch {
             let alert = NSAlert(); alert.messageText = "无法安全打开此 PDF"; alert.informativeText = error.localizedDescription; alert.runModal()
+        }
+    }
+    /// Secrets live only in the secure field and this synchronous unlock call.
+    private func unlockSession(_ url: URL) throws -> DocumentSession? {
+        do { return try DocumentSession.open(url:url) }
+        catch DocumentSessionError.passwordRequired { }
+        var failed = false
+        while true {
+            let alert = NSAlert()
+            alert.messageText = "打开密码保护的 PDF"
+            alert.informativeText = failed ? "密码不正确，或系统不支持此加密方式。请重试。" : "请输入“\(url.lastPathComponent)”的打开密码。密码不会保存。"
+            let field = NSSecureTextField(frame:NSRect(x:0,y:0,width:320,height:24))
+            field.placeholderString = "打开密码"; alert.accessoryView = field
+            alert.addButton(withTitle:"解锁"); alert.addButton(withTitle:"取消")
+            alert.window.initialFirstResponder = field
+            guard alert.runModal() == .alertFirstButtonReturn else { field.stringValue=""; return nil }
+            defer { field.stringValue = "" }
+            do { return try DocumentSession.open(url:url,password:field.stringValue) }
+            catch DocumentSessionError.incorrectPassword { field.stringValue=""; failed=true }
         }
     }
     @objc private func openDocument() {presentOpenPanel(atStartup:false)}
@@ -117,6 +137,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let cut = NSMenuItem(title:"剪切",action:#selector(NSText.cut(_:)),keyEquivalent:"x"); edit.addItem(cut)
         let paste = NSMenuItem(title:"粘贴",action:#selector(NSText.paste(_:)),keyEquivalent:"v"); edit.addItem(paste)
         let selectAll = NSMenuItem(title:"全选",action:#selector(NSText.selectAll(_:)),keyEquivalent:"a"); edit.addItem(selectAll)
+        let insert = NSMenuItem(title:"插入图片…",action:#selector(insertImage),keyEquivalent:"");insert.target=self;edit.addItem(insert)
         item(edit,"查找…",#selector(find),"f")
         let tools = submenu("工具")
         for tool in ReaderTool.allCases {
@@ -177,10 +198,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func closeDocument() { NSApp.keyWindow?.performClose(nil) }
     @objc private func undo() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor { field.undoManager?.undo() } else { activeReader?.undoAction() } }
     @objc private func redo() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor { field.undoManager?.redo() } else { activeReader?.redoAction() } }
-    @objc private func copySelection() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView { field.copy(nil) } else { activeReader?.copyText() } }
+    @objc private func copySelection() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView { field.copy(nil) } else { activeReader?.canvas.copy(nil) } }
     @objc private func chooseTool(_ sender:NSMenuItem) {
         guard let tool=ReaderTool(rawValue:sender.tag) else{return}; activeReader?.selectTool(tool)
     }
+    @objc private func insertImage() {activeReader?.canvas.insertImage(nil)}
     @objc private func find() { activeReader?.openSearch() }
     @objc private func addNote() { activeReader?.addNoteFromSelection() }
     func validateMenuItem(_ item:NSMenuItem)->Bool {

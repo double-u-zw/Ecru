@@ -1,4 +1,4 @@
-Ecru 0.5.0-beta.2 (15)
+Ecru 0.5.0-beta.3 (19)
 macOS 13 Ventura or later
 Apple Silicon (M series): choose the -arm64.dmg.
 Intel: choose the -x86_64.dmg.
@@ -11,12 +11,16 @@ Apple instructions: https://support.apple.com/en-us/102445
 Do not disable Gatekeeper or System Integrity Protection.
 
 打开 PDF ⌘O · 保存 ⌘S · 另存为 ⇧⌘S · 撤销 ⌘Z · 重做 ⇧⌘Z
+粘贴截图 ⌘V · 选择图形后点“填充” · 图片调整完成点“完成”恢复原工具
 Guide: https://github.com/double-u-zw/Ecru
 Feedback: https://github.com/double-u-zw/Ecru/issues
 Verify downloads: shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
-Encrypted, signed and form PDFs are not supported. No OCR or automatic updater.
-The interface is primarily Chinese. Core tests passed on native macOS 14 arm64
-and macOS 15 Intel CI, plus local arm64/Rosetta. Physical Intel input and
-macOS 13 hardware still need separate confirmation.
+Encrypted and signed PDFs are read-only. Ordinary AcroForm/attachment PDFs use
+structure-preserving saves; active/XFA/Portfolio files use protected static reading.
+Images are embedded and editable on reopen, normalized to SDR sRGB with alpha.
+New image/group/fill data requires Beta 3 to continue editing.
+No OCR or automatic updater. The interface is primarily Chinese.
+Local arm64 and Rosetta validation does not replace actual Intel input testing,
+macOS 13 hardware, HDR-source or mixed-DPI display acceptance.
 First-party code: Apache-2.0. Complete licenses are included in the App and DMG.

@@ -19,6 +19,7 @@ struct PageIdentity: Codable, Equatable {
     var textInventoryHash: String? = nil
     var contentHash: String? = nil
 }
+struct TextSpan: Codable, Equatable { var location: Int; var length: Int; var range: NSRange {NSRange(location:location,length:length)} }
 struct PageMark: Codable, Equatable {
     enum Kind: String, Codable { case highlight, region }
     var id = UUID()
@@ -30,6 +31,8 @@ struct PageMark: Codable, Equatable {
     var userName: String = ""
     var display = true
     var print = true
+    var textSpan: TextSpan? = nil
+    var textEditable: Bool? = nil
 }
 struct NoteLink: Codable, Equatable {
     var markID: UUID
@@ -53,20 +56,26 @@ struct AnnotationStore: Codable, Equatable {
     var ink: [[InkStroke]]
     var marks: [PageMark] = []
     var notes: [AnnotationNote] = []
-    var allMarkIDs: Set<UUID> { Set(marks.map(\.id) + ink.flatMap { $0.map(\.id) }) }
+    var imageObjects: [PageImage]? = nil
+    var imageAssets: [String: Data]? = nil
+    var objectGroups: [AnnotationGroup]? = nil
+    var objectOrder: [UUID]? = nil
+    var images: [PageImage] { get { imageObjects ?? [] } set { imageObjects = newValue } }
+    var groups: [AnnotationGroup] { get { objectGroups ?? [] } set { objectGroups = newValue } }
+    var allMarkIDs: Set<UUID> { Set(marks.map(\.id) + ink.flatMap { $0.map(\.id) } + images.map(\.id)) }
     func note(for mark: UUID) -> AnnotationNote? { notes.first { $0.links.contains { $0.markID == mark } } }
     func hasMarks(_ note: AnnotationNote) -> Bool { note.links.contains { allMarkIDs.contains($0.markID) } }
     func valid() -> Bool {
-        let ids = marks.map(\.id) + ink.flatMap { $0.map(\.id) }
+        let ids = marks.map(\.id) + ink.flatMap { $0.map(\.id) } + images.map(\.id)
         let noteIDs = notes.map(\.id)
         let pageIDs = pages.map(\.id)
         func anchorValid(_ a: PageAnchor) -> Bool {
             pages.indices.contains(a.page) && pages[a.page].id == a.pageID &&
             [a.bounds.minX,a.bounds.minY,a.bounds.width,a.bounds.height].allSatisfy(\.isFinite) && a.bounds.width >= 0 && a.bounds.height >= 0
         }
-        return version == 1 && (1...3).contains(minimumReader) && minimumReader >= (ink.flatMap{$0}.map(\.requiredReader).max() ?? 1) && ink.count == pages.count &&
+        return validObjects && version == 1 && (1...5).contains(minimumReader) && minimumReader >= (ink.flatMap{$0}.map(\.requiredReader).max() ?? 1) && (!marks.contains{$0.textSpan != nil} || minimumReader>=4) && ink.count == pages.count &&
         Set(ids).count == ids.count && Set(noteIDs).count == noteIDs.count && Set(pageIDs).count == pageIDs.count &&
-        ink.allSatisfy { $0.allSatisfy(\.isValid) } && marks.allSatisfy { anchorValid($0.anchor) && $0.rgba.count == 4 && $0.rgba.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } } &&
+        ink.allSatisfy { $0.allSatisfy(\.isValid) } && marks.allSatisfy { anchorValid($0.anchor) && ($0.textSpan.map { $0.location>=0 && $0.length>0 && $0.location<10_000_000 && $0.length<10_000_000 } ?? true) } && marks.allSatisfy { $0.rgba.count == 4 && $0.rgba.allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 1 } } &&
         notes.allSatisfy { $0.anchors.allSatisfy(anchorValid) && Set($0.links.map(\.markID)).count == $0.links.count } &&
         Dictionary(grouping: notes.flatMap { $0.links.filter(\.owned).map(\.markID) }, by: { $0 }).values.allSatisfy { $0.count == 1 }
     }
@@ -90,7 +99,7 @@ enum AnnotationPDF {
     static func decode(_ string: String) throws -> AnnotationStore {
         guard string.utf8.count < 64 * 1024 * 1024 else { throw DocumentSessionError.unsupported("批注数据过大") }
         let envelope = try JSONDecoder().decode(Envelope.self, from: Data(string.utf8))
-        guard envelope.version == 1, envelope.minimumReader <= 3 else { throw DocumentSessionError.unsupported("较新的 Ecru 批注格式") }
+        guard envelope.version == 1, envelope.minimumReader <= 5 else { throw DocumentSessionError.unsupported("较新的 Ecru 批注格式") }
         guard let data = Data(base64Encoded: envelope.payload), hash(data) == envelope.sha256 else { throw DocumentSessionError.validation("批注数据校验和错误") }
         let store = try JSONDecoder().decode(AnnotationStore.self, from: data)
         guard store.valid(),store.version == envelope.version,store.minimumReader == envelope.minimumReader else { throw DocumentSessionError.validation("批注身份、几何或版本不一致") }

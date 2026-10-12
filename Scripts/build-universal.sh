@@ -6,7 +6,7 @@ task_variant="${ECRU_VARIANT:-development}"
 task_name="Ecru"
 [[ "$task_variant" != development ]] || task_name="Ecru Dev"
 mkdir -p .build/apps output
-task_stage="$(mktemp -d "$PWD/.build/universal.XXXXXX")"
+task_stage="$(mktemp -d "$PWD/.build/apps/.universal.XXXXXX")"
 trap 'rm -rf "$task_stage"' EXIT
 task_host="$(uname -m)"
 if [[ "$task_host" == "arm64" ]]; then task_other=x86_64; else task_other=arm64; fi

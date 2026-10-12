@@ -22,12 +22,8 @@
 
 ## PDF 保存与分架构构建
 
-`PDFPagePreservation.swift` 通过 C 接口调用固定版本 QPDF，从原 PDF 复制页绘图流与继承资源到 PDFKit 的批注导出。PDFKit 保留批注及其外观流，保存前仍检查页面、目录、原绘图与图像资源、批注清单和显示一致性。较旧 macOS 的 PDFKit 可能重写底图，不能仅依赖其导出保证原内容不变。
+## 复杂 PDF 与保存
 
-`build.sh` 默认生成本机架构 App；`build-release.sh` 生成版本和资源一致的 arm64、x86_64 两份 App 与独立 DMG，最低目标均为 macOS 13。CI 在对应原生 runner 上分别构建、回归与打包。
+`PDFPagePreservation.swift` 通过 C 接口调用固定版本 QPDF；`PDFCapabilities` 区分完整编辑、只读和显式转换的静态批注副本。特征来自解析后的直接与间接对象，密码先经 PDFKit 解锁再经 QPDF 严格解析。活动结构在仅用于显示的内存副本中禁用。
 
-Page identities also carry an optional character-inventory hash. Together with
-unchanged page drawing hashes, this avoids false note-location warnings when
-PDFKit changes text extraction order. Older manifests retain their exact-text
-check. Generated note popups are presentation adapters, removed from the editable
-layer and regenerated from their authoritative note; foreign popups remain intact.
+QPDF 以原始对象图为保存底，只接入 Ecru 管理的新批注，并保留原外来注释及字段/附件引用。对象图验证使用间接引用的双向映射和原流字节，原有内容、批注及原子保存验证继续执行。完整重写不是增量更新；签名与加密暂不写回。只读会话也禁止草稿写入/恢复覆盖，保留原路径旧恢复记录。能力边界和用户流程见 [PDF 兼容性](PDFCompatibility.md)。

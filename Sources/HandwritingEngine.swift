@@ -2,6 +2,11 @@ import AppKit
 
 /// One native input adapter, shared by production and input regression tests.
 enum NativePenInput {
+    private static var nativeTiltCapabilities:[Int:Bool]=[:]
+    static func observeProximity(_ event:NSEvent) {
+        guard event.type == .tabletProximity else{return}
+        nativeTiltCapabilities[Int(event.deviceID)] = event.capabilityMask & 0x180 == 0x180
+    }
     static func validPressure(_ value: Double?) -> Double? {
         guard let value, value.isFinite, (0...1).contains(value) else { return nil }
         return value
@@ -12,6 +17,39 @@ enum NativePenInput {
         guard isPadInk || event.subtype == .tabletPoint || event.type == .tabletPoint else { return nil }
         if isPadInk, let cg { return validPressure(cg.getDoubleValueField(.tabletEventPointPressure)) }
         return validPressure(Double(event.pressure))
+    }
+    static func altitude(tiltX: Double, tiltY: Double) -> Double? {
+        guard tiltX.isFinite,tiltY.isFinite,abs(tiltX)<=1,abs(tiltY)<=1 else{return nil}
+        let x=tan(min(abs(tiltX),0.999999)*Double.pi/2),y=tan(min(abs(tiltY),0.999999)*Double.pi/2)
+        return atan2(1,hypot(x,y))
+    }
+    static func altitude(from event:NSEvent)->Double? {
+        if let cg=event.cgEvent,cg.getIntegerValueField(.tabletEventDeviceID)==0x5049 {
+            return altitude(tiltX:cg.getDoubleValueField(.tabletEventTiltX),tiltY:cg.getDoubleValueField(.tabletEventTiltY))
+        }
+        guard event.subtype == .tabletPoint || event.type == .tabletPoint else{return nil}
+        let id=Int(event.deviceID),tilt=event.tilt
+        if nativeTiltCapabilities[id] == false {return nil}
+        if nativeTiltCapabilities[id] == nil {
+            guard tilt.x != 0 || tilt.y != 0 else{return nil}
+            nativeTiltCapabilities[id]=true
+        }
+        return altitude(tiltX:tilt.x,tiltY:tilt.y)
+    }
+    static func completedContact(_ event:NSEvent)->Bool {
+        guard event.type == .leftMouseUp else{return false}
+        guard let cg=event.cgEvent,cg.getIntegerValueField(.tabletEventDeviceID)==0x5049 else{return true}
+        // v2 marks only a real UIKit end. Old senders and reset/cancel ups
+        // conservatively retain the eraser; user can update PadInk separately.
+        return cg.getIntegerValueField(.tabletEventPointZ)==0x50490003
+    }
+
+}
+
+enum EraserSizeResponse {
+    static func radius(base:Double,altitude:Double?)->Double {
+        guard let altitude,altitude.isFinite,(0...Double.pi/2).contains(altitude) else{return base}
+        return min(48,max(2,base*(0.65+1.85*pow(cos(altitude),1.3))))
     }
 }
 
@@ -44,9 +82,9 @@ enum PenEngine {
         #endif
     }
     static var recipe: String { comparison ? (legacy ? PerfectPenBuilder.recipe : ObservationPenBuilder.recipe) : GoogleInkPenBuilder.recipe }
-    static func make(point: InkPoint,width: Double,pressure: Double?,timestamp: Double? = nil, viewScale: Double = 2) -> PenStrokeBuilding {
+    static func make(point: InkPoint,width: Double,pressure: Double?,timestamp: Double? = nil, viewScale: Double = 2, sensitivity: Double? = nil) -> PenStrokeBuilding {
         if comparison { return legacy ? PerfectPenBuilder(point:point,width:width,pressure:pressure) : ObservationPenBuilder(point:point,width:width,pressure:pressure) }
-        return GoogleInkPenBuilder(point:point,width:width,pressure:pressure,timestamp:timestamp,viewScale:viewScale)
+        return GoogleInkPenBuilder(point:point,width:width,pressure:pressure,timestamp:timestamp,viewScale:viewScale,sensitivity:sensitivity)
     }
 }
 
@@ -360,11 +398,11 @@ final class GoogleInkPenBuilder: PenStrokeBuilding {
     let initialFactors = [1.0]
     private(set) var initialOutlines: [[InkPoint]] = []
 
-    init(point: InkPoint, width: Double, pressure: Double?, timestamp: Double? = nil, viewScale: Double = 2) {
+    init(point: InkPoint, width: Double, pressure: Double?, timestamp: Double? = nil, viewScale: Double = 2, sensitivity: Double? = nil) {
         lastPoint = point
         originTime = timestamp.flatMap { $0.isFinite ? $0 : nil }
-        handle = ecru_google_ink_create_scaled(point.x, point.y, width,
-                                       NativePenInput.validPressure(pressure) ?? -1, viewScale)
+        handle = ecru_google_ink_create_configured(point.x, point.y, width,
+                                       NativePenInput.validPressure(pressure) ?? -1, viewScale, sensitivity ?? -1)
         if let shape = readContours() { contours = shape; initialOutlines = shape }
         else { capacityReached = true }
     }

@@ -19,7 +19,7 @@ final class WindowInputScope {
          belongs: @escaping (NSEvent) -> Bool,
          handle: @escaping (NSEvent) -> Bool) {
         self.remove = remove; self.belongs = belongs; self.handle = handle
-        token = install([.keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .scrollWheel]) { [weak self] event in
+        token = install([.keyDown, .keyUp, .leftMouseDown, .rightMouseDown, .scrollWheel,.tabletProximity]) { [weak self] event in
             guard let self else { return event }
             return self.route(event)
         }

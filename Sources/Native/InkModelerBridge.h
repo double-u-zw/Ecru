@@ -17,6 +17,7 @@ typedef struct { double x, y; int starts_contour; } EcruInkVertex;
 const char *ecru_google_ink_configuration(void);
 void *ecru_google_ink_create(double x, double y, double width, double pressure);
 void *ecru_google_ink_create_scaled(double x, double y, double width, double pressure, double view_scale);
+void *ecru_google_ink_create_configured(double x, double y, double width, double pressure, double view_scale, double sensitivity);
 void ecru_google_ink_destroy(void *handle);
 int ecru_google_ink_update(void *handle, double x, double y, double pressure, double elapsed, int release);
 int ecru_google_ink_outline(void *handle, const EcruInkVertex **vertices);

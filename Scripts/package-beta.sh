@@ -16,7 +16,8 @@ task_release="$PWD/output/releases/$task_version"
 mkdir -p "$task_release"
 task_dmg="$task_release/Ecru-$task_version-$task_arch.dmg"
 [[ ! -e "$task_dmg" ]] || { print -u2 "Already exists: $task_dmg"; exit 1; }
-task_stage="$(mktemp -d "$PWD/.build/dmg-stage.XXXXXX")"
+mkdir -p .build/apps
+task_stage="$(mktemp -d "$PWD/.build/apps/.dmg-stage.XXXXXX")"
 trap 'rm -rf "$task_stage"' EXIT
 ditto "$task_app" "$task_stage/Ecru.app"
 ln -s /Applications "$task_stage/Applications"

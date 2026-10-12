@@ -11,9 +11,9 @@ if [[ "${task_destination:A}" == /Applications/Ecru.app || "${task_destination:A
  print -u2 "Build into output first. Update the installed Ecru separately after review."; exit 1
 fi
 source Scripts/native-ink-flags.sh
-mkdir -p .build/module-cache output
+mkdir -p .build/module-cache .build/apps output
 # Publish a complete bundle: no abandoned executables or icon resources survive.
-task_bundle="$(mktemp -d "$PWD/.build/app-bundle.XXXXXX")/Ecru.app"
+task_bundle="$(mktemp -d "$PWD/.build/apps/.app-bundle.XXXXXX")/Ecru.app"
 mkdir -p "$task_bundle/Contents/MacOS"
 xcrun swiftc "${ecru_ink_flags[@]}" -swift-version 5 -target "$ecru_arch-apple-macosx13.0" -O -whole-module-optimization -module-cache-path "$PWD/.build/module-cache" Sources/*.swift -o "$task_bundle/Contents/MacOS/Ecru" -framework AppKit -framework PDFKit -framework UniformTypeIdentifiers -framework WebKit
 # Do not truncate an executable mapped by the reader that is protecting a draft.

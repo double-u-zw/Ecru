@@ -24,7 +24,11 @@ final class ReaderParameterStrip: NSView {
         super.layout()
         var x: CGFloat = 0
         for view in subviews {
-            let width = max(54,view.intrinsicContentSize.width+12)
+            let width:CGFloat
+            if let button=view as? NSButton {
+                let title=(button.title as NSString).size(withAttributes:[.font:button.font ?? NSFont.systemFont(ofSize:12)]).width
+                width=max(36,ceil(title)+(button.image == nil ? 0:18)+12)
+            } else {width=max(36,view.intrinsicContentSize.width+12)}
             view.frame = NSRect(x:x,y:0,width:width,height:bounds.height)
             x += width+6
         }
@@ -97,6 +101,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     private(set) var disconnected = false
     private var rebinding = false
     var didClose: (() -> Void)?
+    var didCreateAnnotationCopy: ((URL) -> Void)?
 
     init(session: DocumentSession,
          installInputMonitor: WindowInputScope.Install = WindowInputScope.nativeInstall,
@@ -110,6 +115,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         window.contentView = root; window.setFrameAutosaveName("LeafInkReaderWindow")
         root.onLayout = { [weak self] in self?.layoutViews() }
         canvas.reader = self; buildInterface()
+        if session.annotationReadOnly { canvas.setTool(.select) }
         parameterPopover.animates = false
         pdfView.pageOverlayViewProvider = canvas.presentation
         pdfView.document = session.document; pdfView.displayMode = .singlePageContinuous
@@ -152,9 +158,10 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         }
         inputScope = WindowInputScope(install:installInputMonitor, remove:removeInputMonitor, belongs: { [weak self] event in
             guard let self, !self.disconnected else { return false }
-            return event.window === self.window || (event.window == nil && self.window?.isKeyWindow == true && ReaderCanvas.isPadInkZoom(event))
+            return event.window === self.window || (event.window == nil && self.window?.isKeyWindow == true && (ReaderCanvas.isPadInkZoom(event) || event.type == .tabletProximity))
         }, handle: { [weak self] event in
             guard let self else { return false }
+            if event.type == .tabletProximity {NativePenInput.observeProximity(event);return false}
             if self.canvas.handlePadInkZoom(event) { return true }
             if event.type == .keyDown, event.keyCode == 53,
                (self.window?.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
@@ -170,7 +177,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             guard let self, !self.disconnected else { return }
             self.restorePosition(); self.window?.makeFirstResponder(self.canvas); self.offerRecovery()
         }
-        if session.currentFileIsReadOnly { DispatchQueue.main.async { [weak self] in guard let self, !self.disconnected else { return }; self.showNotice("当前 PDF 为只读；可以阅读和批注，但保存需要另存到可写文件。") } }
+        if session.capabilities.canEdit && session.currentFileIsReadOnly { DispatchQueue.main.async { [weak self] in guard let self, !self.disconnected else { return }; self.showNotice("当前 PDF 为只读；可以阅读和批注，但保存需要另存到可写文件。") } }
     }
     required init?(coder: NSCoder) { fatalError() }
     deinit { notifications.forEach(NotificationCenter.default.removeObserver); inputScope?.stop() }
@@ -359,13 +366,13 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func refresh() {
         canvas.refreshToolCursor()
         window?.title = session.fileURL.lastPathComponent
-        window?.subtitle = ""
+        window?.subtitle = session.annotationReadOnly ? session.statusText : session.capabilities.mode == .annotationCopy ? "静态批注副本" : ""
         window?.isDocumentEdited = session.isModified
         window?.representedURL = session.fileURL
         titleButton.title = session.fileURL.lastPathComponent; titleButton.toolTip = session.fileURL.path
         titleButton.setAccessibilityLabel("当前文档："+session.fileURL.lastPathComponent)
-        statusButton.title = session.annotationReadOnly ? "批注冲突 · 只读" : session.conflictDetected ? "外部修改 · 未保存" : session.statusText; statusButton.isHidden = session.statusText.isEmpty && !session.annotationReadOnly
-        statusButton.toolTip = session.statusText.isEmpty ? "已保存" : session.statusText
+        statusButton.title = session.annotationReadOnly && session.capabilities.canEdit ? "批注冲突 · 只读" : session.conflictDetected ? "外部修改 · 未保存" : session.statusText; statusButton.isHidden = session.statusText.isEmpty && !session.annotationReadOnly
+        statusButton.toolTip = !session.capabilities.canEdit ? session.capabilities.summary : session.statusText.isEmpty ? "已保存" : session.statusText
         statusButton.setAccessibilityLabel(statusButton.title.isEmpty ? "已保存" : statusButton.title)
         statusButton.image=NSImage(systemSymbolName:session.conflictDetected || session.annotationReadOnly ? "exclamationmark.circle" : "circle.fill",accessibilityDescription:statusButton.toolTip)
         statusButton.imagePosition = .imageOnly
@@ -385,6 +392,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         back.isEnabled = historyIndex > 0; forward.isEnabled = historyIndex >= 0 && historyIndex < navigationHistory.count-1
         undoButton.isEnabled = session.canUndo; redoButton.isEnabled = session.canRedo
         for b in toolButtons {
+            b.isEnabled = !session.annotationReadOnly || b.tag == ReaderTool.select.rawValue
             let selected = b.tag == canvas.tool.rawValue
             b.state = selected ? .on : .off
             b.showsBorderOnlyWhileMouseInside = !selected
@@ -394,15 +402,55 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         updateOutlineSelection(); updateParameters()
     }
     func updateParameters() {
+        // Keep the anchor view alive throughout a continuous slider or color gesture.
+        // Replacing it makes AppKit dismiss the popover after the first change.
+        if parameterPopover.isShown {
+            if canvas.selectedShapes.isEmpty {
+                for b in parameters.arrangedSubviews.compactMap({$0 as? NSButton}) {
+                    if b.action == #selector(showWidths(_:)) {
+                        let title=canvas.tool == .eraser ? "直径 \(Int(canvas.eraserRadius*2)) pt":String(format:"%.2f pt",canvas.widths[canvas.tool] ?? 1.6)
+                        b.title=title;b.setAccessibilityLabel(title)
+                    } else if b.action == #selector(showColors(_:)),let color=canvas.colors[canvas.tool] {
+                        let title=colorName(color);b.title=title;b.setAccessibilityLabel(title);b.toolTip="当前颜色："+title+"；点击切换"
+                        b.image=NSImage(size:CGSize(width:12,height:12),flipped:false){_ in color.setFill();NSBezierPath(ovalIn:CGRect(x:1,y:1,width:10,height:10)).fill();return true}
+                    }
+                }
+            }
+            parameters.needsLayout=true;return
+        }
         for v in parameters.arrangedSubviews { parameters.removeArrangedSubview(v); v.removeFromSuperview() }
         func parameterButton(_ title: String, action: Selector) -> NSButton {
             let b = NSButton(title: title, target: self, action: action); b.bezelStyle = .accessoryBarAction; b.showsBorderOnlyWhileMouseInside = true
-            b.font = .systemFont(ofSize: 12); b.setAccessibilityLabel(title); parameters.addArrangedSubview(b); return b
+            b.font = .systemFont(ofSize: 12); b.setAccessibilityLabel(title)
+            parameters.addArrangedSubview(b); return b
+        }
+        if canvas.hasShapePreview {
+            let hint=NSTextField(labelWithString:"图形预览 · Esc 恢复")
+            hint.font = .systemFont(ofSize:12);hint.textColor = .secondaryLabelColor
+            hint.setAccessibilityLabel("图形预览；继续移动调整尺寸，抬笔确认；Esc 恢复手绘")
+            parameters.addArrangedSubview(hint);return
         }
         if canvas.tool == .select, !(pdfView.currentSelection?.string ?? "").isEmpty {
             _ = parameterButton("添加批注", action:#selector(addNoteFromSelection));return
         }
+        if canvas.isCropping {
+            let hint=NSTextField(labelWithString:"拖出保留区域 · Esc 取消");parameters.addArrangedSubview(hint)
+            let done=parameterButton("确认裁剪",action:#selector(ReaderCanvas.commitCrop(_:)));done.target=canvas;return
+        }
+        if !canvas.selectedImages.isEmpty {
+            let b=parameterButton("图片",action:#selector(ReaderCanvas.objectMenu(_:)));b.target=canvas
+            let done=parameterButton("完成",action:#selector(ReaderCanvas.finishObjects(_:)));done.target=canvas
+            _ = parameterButton("删除",action:#selector(deleteSelection));return
+        }
+        if !canvas.selectedShapes.isEmpty {
+            let objects=parameterButton("对象",action:#selector(ReaderCanvas.objectMenu(_:)));objects.target=canvas
+            _ = parameterButton("边框",action:#selector(showColors(_:)))
+            _ = parameterButton("线宽",action:#selector(showWidths(_:)))
+            if canvas.selectedShapes.contains(where:{$0.shape!.closed}) {_ = parameterButton("填充",action:#selector(showFill(_:)))}
+            _ = parameterButton("删除",action:#selector(deleteSelection));return
+        }
         if canvas.hasDeletableSelection {
+            let objects=parameterButton("对象",action:#selector(ReaderCanvas.objectMenu(_:)));objects.target=canvas
             _ = parameterButton("添加正文", action: #selector(addNoteFromSelection))
             _ = parameterButton(canvas.selectedHighlight != nil ? "删除高亮" : "删除所选", action: #selector(deleteSelection)); return
         }
@@ -413,51 +461,31 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             b.image=NSImage(size:CGSize(width:12,height:12),flipped:false) {_ in c.setFill();NSBezierPath(ovalIn:CGRect(x:1,y:1,width:10,height:10)).fill();return true};b.imagePosition = .imageLeft
             b.toolTip="当前颜色："+label+"；点击切换"
         }
-        if canvas.tool == .pen || canvas.tool == .marker { _ = parameterButton("\(canvas.widths[canvas.tool]!) pt", action: #selector(showWidths(_:)));parameters.arrangedSubviews.last?.toolTip="PDF 页坐标点；显示粗细随缩放变化" }
+        if canvas.tool == .pen || canvas.tool == .marker { _ = parameterButton(String(format:"%.2f pt",canvas.widths[canvas.tool]!), action: #selector(showWidths(_:)));parameters.arrangedSubviews.last?.toolTip="PDF 页坐标点；显示粗细随缩放变化" }
+        if canvas.tool == .pen { _ = parameterButton("图形填充",action:#selector(showFill(_:))) }
         if canvas.tool == .eraser { _ = parameterButton("直径 \(Int(canvas.eraserRadius*2)) pt", action: #selector(showWidths(_:))) }
     }
     private func colorName(_ color: NSColor) -> String {
         let colors: [(NSColor,String)] = [(.systemBlue,"蓝色"),(.black,"黑色"),(.systemRed,"红色"),(.systemYellow,"黄色"),(.systemGreen,"绿色")]
-        return colors.first { $0.0 == color }?.1 ?? "自选颜色"
+        guard let rgb=color.usingColorSpace(.sRGB) else{return "自选颜色"}
+        return colors.first {
+            guard let c=$0.0.usingColorSpace(.sRGB) else{return false}
+            return abs(c.redComponent-rgb.redComponent)<0.005 && abs(c.greenComponent-rgb.greenComponent)<0.005 && abs(c.blueComponent-rgb.blueComponent)<0.005
+        }?.1 ?? "自选颜色"
     }
-    @objc func changeTool(_ sender: NSButton) { guard !canvas.gesture else { return }; noteCard.dismiss(); selectionAdd.isHidden=true; closeParameters(); canvas.setTool(ReaderTool(rawValue: sender.tag)!); refresh(); window?.makeFirstResponder(canvas) }
-    func closeParameters() { parameterPopover.close() }
-    private func showParameterChoices(_ labels: [String], tagBase: Int, from sender: NSButton) {
-        closeParameters(); let content = NSViewController(); let stack = NSStackView(); stack.orientation = .vertical; stack.spacing = 6; stack.alignment = .leading; stack.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-        for (i,label) in labels.enumerated() { let b = NSButton(title: label, target: self, action: #selector(parameterChoice(_:))); b.tag = tagBase+i; b.bezelStyle = .rounded; b.setButtonType(.radio)
-            let values: [Double] = canvas.tool == .eraser ? [8,20,36] : canvas.tool == .marker ? [8,14,22] : [0.8,1.6,2.8,4.0]
-            let currentWidth = canvas.tool == .eraser ? canvas.eraserRadius*2 : canvas.widths[canvas.tool] ?? 0
-            let selected = tagBase == 100 ? label == colorName(canvas.colors[canvas.tool] ?? .black) : abs(values[i]-currentWidth)<0.01
-            b.state = selected ? .on : .off; b.setAccessibilityLabel(label)
-            b.font = .systemFont(ofSize:13)
-            let row=NSStackView();row.orientation = .horizontal;row.spacing=10
-            row.addArrangedSubview(b)
-            let sample=NSImageView();sample.imageScaling = .scaleNone
-            sample.image=NSImage(size:NSSize(width:42,height:18),flipped:false) { _ in
-                if tagBase == 100 {
-                    let color=[NSColor.systemBlue,.black,.systemRed,.systemYellow,.systemGreen][i]
-                    let path=NSBezierPath(roundedRect:NSRect(x:5,y:2,width:32,height:14),xRadius:4,yRadius:4)
-                    color.setFill();path.fill();NSColor.separatorColor.setStroke();path.lineWidth=0.5;path.stroke()
-                } else {
-                    NSColor.labelColor.setStroke();let line=NSBezierPath();line.lineWidth=min(values[i],8);line.lineCapStyle = .round
-                    line.move(to:NSPoint(x:6,y:9));line.line(to:NSPoint(x:36,y:9));line.stroke()
-                }
-                return true
-            }
-            sample.image?.isTemplate=false;row.addArrangedSubview(sample);stack.addArrangedSubview(row) }
-        content.view = stack; content.preferredContentSize = CGSize(width: 176, height: labels.count*26+24)
-        parameterPopover.contentViewController = content; parameterPopover.behavior = .transient
-        parameterPopover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+    @objc func changeTool(_ sender: NSButton) {
+        if session.annotationReadOnly && sender.tag != ReaderTool.select.rawValue { showSaveState(); return }
+        guard !canvas.gesture else { return }; noteCard.dismiss(); selectionAdd.isHidden=true; closeParameters(); canvas.setTool(ReaderTool(rawValue: sender.tag)!); refresh(); window?.makeFirstResponder(canvas) }
+    func closeParameters() { canvas.finishShapeStyleEditing();parameterPopover.close() }
+    private func showWritingPanel(_ sender:NSButton,colors:Bool,fill:Bool=false) {
+        closeParameters();let content=WritingParameterPanel(reader:self,colors:colors,fill:fill)
+        parameterPopover.contentViewController=content;parameterPopover.behavior = .semitransient
+        parameterPopover.show(relativeTo:sender.bounds,of:sender,preferredEdge:.minY)
     }
-    @objc private func showColors(_ sender: NSButton) { showParameterChoices(["蓝色", "黑色", "红色", "黄色", "绿色"], tagBase: 100, from: sender) }
-    @objc private func showWidths(_ sender: NSButton) { showParameterChoices(canvas.tool == .eraser ? ["8 pt", "20 pt", "36 pt"] : (canvas.tool == .marker ? ["8 pt", "14 pt", "22 pt"] : ["细 · 0.8 pt", "标准 · 1.6 pt", "粗 · 2.8 pt", "强调 · 4.0 pt"]), tagBase: 200, from: sender) }
-    @objc private func parameterChoice(_ sender: NSButton) {
-        if sender.tag >= 200 {
-            let choices: [Double] = canvas.tool == .eraser ? [8,20,36] : (canvas.tool == .marker ? [8,14,22] : [0.8,1.6,2.8,4.0])
-            if canvas.tool == .eraser { canvas.eraserRadius = choices[sender.tag-200]/2 } else { canvas.widths[canvas.tool] = choices[sender.tag-200] }
-        } else { canvas.colors[canvas.tool] = [NSColor.systemBlue,.black,.systemRed,.systemYellow,.systemGreen][sender.tag-100] }
-        closeParameters(); updateParameters(); window?.makeFirstResponder(canvas)
-    }
+    @objc private func showColors(_ sender:NSButton) {showWritingPanel(sender,colors:true)}
+    @objc private func showWidths(_ sender:NSButton) {showWritingPanel(sender,colors:false)}
+    @objc private func showFill(_ sender:NSButton) {showWritingPanel(sender,colors:true,fill:true)}
+    @objc private func restoreShape(_ sender:NSButton) {canvas.editSelectedShapes(restore:true)}
     @objc func deleteSelection() { guard !canvas.gesture else { return }; canvas.deleteSelected(); window?.makeFirstResponder(canvas) }
     @objc func undoAction() { noteCard.commit(); canvas.finishInterruptedInput(); closeParameters(); canvas.clearSelection(); session.undo() }
     @objc func redoAction() { noteCard.commit(); canvas.finishInterruptedInput(); closeParameters(); canvas.clearSelection(); session.redo() }
@@ -550,7 +578,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     }
     func beginRegionNote(relink:UUID?) {
         noteCard.dismiss(); canvas.finishInterruptedInput()
-        guard !session.annotationReadOnly else { showNotice(session.annotationWarnings.joined(separator:"\n")); return }
+        guard !session.annotationReadOnly else { showSaveState(); return }
         canvas.beginRegion(relink:relink); window?.makeFirstResponder(canvas)
     }
     @objc func toggleSidebar() { guard !canvas.gesture else { return }; closeParameters(); if searchVisible { hideSearch() } else { preservePosition { sidebarVisible.toggle() } } }
@@ -718,6 +746,16 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     @objc private func revealFile() { NSWorkspace.shared.activateFileViewerSelecting([session.fileURL]) }
     func showNotice(_ message:String) { let alert = NSAlert(); alert.messageText = message; alert.addButton(withTitle:"好"); if let window { alert.beginSheetModal(for:window) } }
     @objc private func showSaveState() {
+        if !session.capabilities.canEdit {
+            let alert=NSAlert();alert.messageText="此 PDF 以只读模式打开"
+            alert.informativeText=session.capabilities.summary
+            if session.capabilities.canCreateStaticCopy { alert.addButton(withTitle:"创建静态批注副本…") }
+            alert.addButton(withTitle:"关闭")
+            alert.beginSheetModal(for:window!) { [weak self] response in
+                guard let self else{return}
+                if self.session.capabilities.canCreateStaticCopy && response == .alertFirstButtonReturn { self.offerStaticCopy() }
+            };return
+        }
         if session.annotationReadOnly { showNotice(session.annotationWarnings.joined(separator:"\n")); return }
         guard !session.isSaving else { return }
         let alert = NSAlert(); alert.messageText = session.statusText.isEmpty ? "已保存" : session.statusText
@@ -731,11 +769,33 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             }
         }
     }
-    @objc func saveDocument() { performSave(to:nil) }
+    @objc func saveDocument() {
+        guard !session.annotationReadOnly else { showSaveState(); return }; performSave(to:nil)
+    }
     @objc func saveDocumentAs() {
+        guard !session.annotationReadOnly else { showSaveState(); return }
         guard !session.isSaving else { return }; canvas.finishInterruptedInput(); closeParameters()
         let panel = NSSavePanel(); panel.allowedContentTypes = [.pdf]; panel.nameFieldStringValue = session.fileURL.lastPathComponent
         panel.beginSheetModal(for:window!) { [weak self] response in if response == .OK, let url = panel.url { self?.performSave(to:url) } }
+    }
+    private func offerStaticCopy() {
+        let alert=NSAlert();alert.messageText="创建仅含当前静态页面的批注副本？"
+        alert.informativeText="副本保留当前可见页面和文字。动态表单、附件、脚本、媒体、Portfolio 和原有可编辑批注结构不会保留。静态页面可能不包含动态内容；请先检查阅读效果。原文件不会改变。"
+        alert.addButton(withTitle:"选择副本位置…");alert.addButton(withTitle:"取消")
+        alert.beginSheetModal(for:window!) { [weak self] response in
+            guard let self,response == .alertFirstButtonReturn else{return}
+            let panel=NSSavePanel();panel.allowedContentTypes=[.pdf]
+            panel.nameFieldStringValue=self.session.fileURL.deletingPathExtension().lastPathComponent+"-静态批注副本.pdf"
+            panel.beginSheetModal(for:self.window!) { [weak self] result in
+                guard let self,result == .OK,let url=panel.url else{return}
+                do {
+                    try self.session.createStaticAnnotationCopy(to:url)
+                    if let open=self.didCreateAnnotationCopy {open(url)}
+                    else {self.showNotice("静态批注副本已创建，可通过文件菜单打开。")}
+                }
+                catch { self.showNotice(error.localizedDescription) }
+            }
+        }
     }
     private func performSave(to url:URL?, thenClose:Bool = false) {
         noteCard.commit(); canvas.finishInterruptedInput(); closeParameters()
@@ -776,12 +836,12 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func disconnectInputAndViews() {
         guard !disconnected else { return }
         canvas.finishInterruptedInput()
-        disconnected = true
+        disconnected = true;canvas.disconnectImageImports()
         if NSCursor.current === ReaderCanvas.paperCursor {NSCursor.arrow.set()}
         inputScope?.stop(); inputScope = nil
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
         closeParameters(); root.onLayout = nil
-        noteCard.disconnect(); session.onHistoryNote = nil
+        noteCard.disconnect(); session.onHistoryNote = nil; didCreateAnnotationCopy = nil
         pdfView.pageOverlayViewProvider = nil
         canvas.presentation.disconnect()
         session.onInkChange = nil; session.onChange = nil; session.isTargetOpenElsewhere = nil
@@ -791,7 +851,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func windowWillResize(_ sender:NSWindow,to frameSize:NSSize) -> NSSize { canvas.gesture ? sender.frame.size : frameSize }
     func windowDidResize(_ notification:Notification) { closeParameters(); root.needsLayout = true }
     private func offerRecovery() {
-        guard let record = session.recoverableRecord else { return }
+        guard !session.annotationReadOnly, let record = session.recoverableRecord else { return }
         let alert = NSAlert(); alert.messageText = "发现此 PDF 的未保存恢复内容"
         alert.informativeText = "恢复不会覆盖原 PDF；恢复后仍需要保存或另存。"; alert.addButton(withTitle:"恢复"); alert.addButton(withTitle:"丢弃恢复内容")
         alert.beginSheetModal(for:window!) { [weak self] response in
@@ -837,6 +897,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     var testSidebarVisible:Bool { sidebarVisible }
     var testSearchField:NSSearchField { searchField }
     var testPageField:NSTextField { pageField }
+    func testOpenFill() {parameters.arrangedSubviews.compactMap{$0 as? NSButton}.first{$0.action == #selector(showFill(_:))}?.performClick(nil)}
     func testOpenColor() { (parameters.arrangedSubviews.first as? NSButton)?.performClick(nil) }
     func testGoBack() { goBack() }
     #if ECRU_UI_TESTS
@@ -844,7 +905,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     var testZoomMenuTitles:[String] { zoom.itemTitles }
     func testResizeSidebar(_ width:CGFloat) {body.setPosition(splitView(body,constrainSplitPosition:width,ofSubviewAt:0),ofDividerAt:0);layoutViews()}
     var testSidebarWidth:CGFloat {sidebar.frame.width}
-    func testOpenWidth() {(parameters.arrangedSubviews.last as? NSButton)?.performClick(nil)}
+    func testOpenWidth() {parameters.arrangedSubviews.compactMap{$0 as? NSButton}.first{$0.action == #selector(showWidths(_:))}?.performClick(nil)}
     func testShowThumbnails() { sidebarTabs.selectedSegment=0; changeSidebarTab() }
     func testShowOutline() { sidebarTabs.selectedSegment=1; changeSidebarTab() }
     var testInterfaceIssues: [String] {
@@ -889,4 +950,163 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     }
     #endif
 
+}
+
+/// A single native popover keeps settings off the main toolbar.
+private final class WritingParameterPanel: NSViewController {
+    weak var reader:ReaderWindow?
+    let tool:ReaderTool
+    let editingShape:Bool
+    let filling:Bool
+    let colorMode:Bool
+    let stack=NSStackView()
+    let preview=WritingWidthPreview(frame:CGRect(x:0,y:0,width:232,height:32))
+    let valueLabel=NSTextField(labelWithString:"")
+    let well=NSColorWell()
+    var palette:[NSColor]=[]
+    var recentPalette:[NSColor]=[]
+    var widthSlider:NSSlider?
+    var alphaSlider:NSSlider?
+    var noFillButton:NSButton?
+    var followFillButton:NSButton?
+    var customFillButton:NSButton?
+    var changeColor:((NSColor)->Void)?
+    init(reader:ReaderWindow,colors:Bool,fill:Bool=false) {
+        self.reader=reader;tool=reader.canvas.tool;editingShape = !reader.canvas.selectedShapes.isEmpty;filling=fill;colorMode=colors
+        super.init(nibName:nil,bundle:nil)
+    }
+    required init?(coder:NSCoder){fatalError()}
+    override func loadView() {
+        stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=10
+        stack.edgeInsets=NSEdgeInsets(top:14,left:14,bottom:14,right:14);view=stack
+        guard let canvas=reader?.canvas else{return}
+        func label(_ title:String) {let t=NSTextField(labelWithString:title);t.font = .systemFont(ofSize:12,weight:.medium);stack.addArrangedSubview(t)}
+        func slider(_ value:Double,_ min:Double,_ max:Double,_ action:Selector)->NSSlider {
+            let s=NSSlider(value:value,minValue:min,maxValue:max,target:self,action:action);s.isContinuous=true;s.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(s);return s
+        }
+        func check(_ title:String,_ state:Bool,_ tag:Int) {
+            let b=NSButton(checkboxWithTitle:title,target:self,action:#selector(settingChanged(_:)));b.state=state ? .on:.off;b.tag=tag;stack.addArrangedSubview(b);if tag==10{noFillButton=b};if tag==11{followFillButton=b};if tag==12{customFillButton=b}
+        }
+        if colorMode {
+            label(filling ? "图形填充":"颜色")
+            let shape=canvas.selectedShapes.first
+            let rgba=filling ? shape?.shape?.fill:shape?.rgba
+            let color=rgba.map{NSColor(srgbRed:$0[0],green:$0[1],blue:$0[2],alpha:$0[3])} ?? (filling ? canvas.effectiveShapeFill ?? (canvas.colors[.pen] ?? .systemBlue).withAlphaComponent(0.2):canvas.colors[tool] ?? .systemBlue)
+            well.color=color;well.target=self;well.action=#selector(wellChanged(_:));NSColorPanel.shared.showsAlpha=true
+            well.setAccessibilityLabel(filling ? "自定义填充颜色":"自定义颜色");well.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(well)
+            palette=[.systemBlue,.black,.systemRed,.systemYellow,.systemGreen,.systemOrange,.systemPurple,.systemPink,.systemTeal,.systemIndigo,.brown,.white]
+            palette += [[0.65,0.78,0.91],[0.83,0.68,0.73],[0.72,0.82,0.65],[0.91,0.83,0.61],[0.77,0.72,0.87],[0.91,0.73,0.59],[0.65,0.82,0.80],[0.81,0.79,0.74]].map{NSColor(srgbRed:$0[0],green:$0[1],blue:$0[2],alpha:1)}
+            for start in stride(from:0,to:palette.count,by:5) {
+                let row=NSStackView();row.spacing=8
+                for i in start..<min(start+5,palette.count) {row.addArrangedSubview(swatch(palette[i],tag:i))};stack.addArrangedSubview(row)
+            }
+            recentPalette=canvas.recentColors
+            if !recentPalette.isEmpty {
+                label("最近使用")
+                let row=NSStackView();row.spacing=6
+                for (i,c) in recentPalette.enumerated(){row.addArrangedSubview(swatch(c,tag:100+i))};stack.addArrangedSubview(row)
+            }
+            label(filling ? "填充不透明度":"不透明度")
+            let alpha=slider(color.alphaComponent,0,1,#selector(alphaChanged(_:)));alphaSlider=alpha;alpha.setAccessibilityLabel("颜色透明度")
+            if filling {
+                check("无填充",editingShape ? shape?.shape?.fill == nil:canvas.shapeFill == nil,10)
+                check(editingShape ? "跟随边框":"跟随笔色",editingShape ? shape?.shape?.effectiveFillMode == .border:canvas.shapeFillFollowsPen,11)
+                check("自定义颜色",editingShape ? shape?.shape?.effectiveFillMode == .custom:canvas.shapeFill != nil && !canvas.shapeFillFollowsPen,12)
+                if editingShape,Set(canvas.selectedShapes.map{$0.shape!.effectiveFillMode}).count>1 {label("多选填充模式不同；修改将统一应用")}
+            }
+        } else {
+            label(editingShape ? "图形边框宽度":tool == .eraser ? "橡皮直径":"基础笔宽")
+            let width=canvas.selectedShapes.first?.width ?? (tool == .eraser ? canvas.eraserRadius*2:canvas.widths[tool] ?? 1.6)
+            preview.width=width;preview.color=canvas.colors[tool] ?? .labelColor;stack.addArrangedSubview(preview)
+            preview.widthAnchor.constraint(equalToConstant:232).isActive=true;preview.heightAnchor.constraint(equalToConstant:32).isActive=true
+            valueLabel.stringValue=String(format:"%.2f pt",width);stack.addArrangedSubview(valueLabel)
+            let w=slider(width,tool == .eraser ? 4:tool == .marker ? 1:0.2,tool == .eraser ? 64:tool == .marker ? 40:12,#selector(widthChanged(_:)));widthSlider=w;w.setAccessibilityLabel("连续笔宽")
+            let presets=tool == .eraser ? [8.0,20,36]:tool == .marker ? [8.0,14,22]:[0.8,1.6,2.8,4.0]
+            let row=NSStackView();row.spacing=6
+            for (i,width) in presets.enumerated(){let b=NSButton(title:"\(width)",target:self,action:#selector(presetChanged(_:)));b.tag=200+i;b.bezelStyle = .rounded;row.addArrangedSubview(b)};stack.addArrangedSubview(row)
+            if tool == .pen && !editingShape {
+                check("压力动态笔宽",canvas.pressureEnabled,1);label("压感灵敏度")
+                let s=slider(canvas.pressureSensitivity,0.1,1,#selector(sensitivityChanged(_:)));s.setAccessibilityLabel("压感灵敏度")
+                check("停笔自动规整图形",canvas.automaticShapes,2)
+                let hint=NSTextField(wrappingLabelWithString:"保持接触并停留约 0.65 秒；Esc 恢复手绘。仅使用真实压力；无压感的笔可关闭压感。");hint.font = .systemFont(ofSize:11);hint.textColor = .secondaryLabelColor;hint.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(hint)
+            }
+            if tool == .eraser && !editingShape {check("倾斜调整橡皮大小",canvas.tiltEraser,3);check("擦除后自动切回笔",canvas.automaticPenReturn,4)}
+        }
+        preferredContentSize=CGSize(width:260,height:stack.fittingSize.height)
+    }
+    private func swatch(_ c:NSColor,tag:Int)->NSButton {
+        let b=NSButton(image:NSImage(size:CGSize(width:30,height:24),flipped:false){_ in c.setFill();let p=NSBezierPath(roundedRect:CGRect(x:2,y:2,width:26,height:20),xRadius:5,yRadius:5);p.fill();NSColor.separatorColor.setStroke();p.lineWidth=0.5;p.stroke();return true},target:self,action:#selector(paletteChanged(_:)))
+        b.tag=tag;b.isBordered=false;b.setAccessibilityLabel("颜色 \(tag+1)");return b
+    }
+    private func applyColor(_ color:NSColor,remember:Bool=true) {
+        guard let canvas=reader?.canvas,!canvas.gesture else{return}
+        if filling {noFillButton?.state = .off;followFillButton?.state = .off;customFillButton?.state = .on;if editingShape{canvas.editSelectedShapes(fill:color)}else{canvas.shapeFillFollowsPen=false;canvas.shapeFill=color}}
+        else if editingShape {canvas.editSelectedShapes(border:color)}
+        else {canvas.colors[tool]=color}
+        well.color=color;alphaSlider?.doubleValue=color.alphaComponent;canvas.rememberWritingPreferences(color:remember ? color:nil);reader?.updateParameters()
+    }
+    @objc private func paletteChanged(_ b:NSButton) {
+        let c=b.tag>=100 ? recentPalette[b.tag-100]:palette[b.tag]
+        applyColor(c.withAlphaComponent(well.color.alphaComponent))
+    }
+    @objc private func wellChanged(_ sender:NSColorWell) {applyColor(sender.color)}
+    @objc private func alphaChanged(_ sender:NSSlider) {
+        if editingShape,let canvas=reader?.canvas {
+            well.color=well.color.withAlphaComponent(sender.doubleValue);noFillButton?.state = .off
+            canvas.editSelectedShapes(fill:well.color,fillMatchesBorder:followFillButton?.state == .on,continuous:true);return
+        }
+        if filling,let canvas=reader?.canvas,editingShape ? canvas.selectedShapes.first?.shape?.effectiveFillMode == .border:canvas.shapeFillFollowsPen {
+            noFillButton?.state = .off;well.color=well.color.withAlphaComponent(sender.doubleValue);if !editingShape{canvas.shapeFill=well.color;well.color=canvas.effectiveShapeFill!}
+            canvas.editSelectedShapes(fill:well.color,fillMatchesBorder:true);canvas.rememberWritingPreferences();reader?.updateParameters()
+        } else {applyColor(well.color.withAlphaComponent(sender.doubleValue),remember:NSApp.currentEvent?.type == .leftMouseUp)}
+    }
+    private func applyWidth(_ value:Double) {
+        guard let canvas=reader?.canvas,!canvas.gesture else{return}
+        if editingShape {canvas.editSelectedShapes(width:value,continuous:NSApp.currentEvent?.type == .leftMouseDragged)}
+        else if tool == .eraser {canvas.eraserRadius=value/2}
+        else {canvas.widths[tool]=value}
+        widthSlider?.doubleValue=value;preview.width=value;preview.needsDisplay=true;valueLabel.stringValue=String(format:"%.2f pt",value)
+        canvas.rememberWritingPreferences();reader?.updateParameters()
+    }
+    @objc private func widthChanged(_ sender:NSSlider) {applyWidth(sender.doubleValue)}
+    @objc private func presetChanged(_ sender:NSButton) {let v=tool == .eraser ? [8.0,20,36]:tool == .marker ? [8.0,14,22]:[0.8,1.6,2.8,4.0];applyWidth(v[sender.tag-200])}
+    @objc private func sensitivityChanged(_ sender:NSSlider) {reader?.canvas.pressureSensitivity=sender.doubleValue;reader?.canvas.rememberWritingPreferences()}
+    @objc private func settingChanged(_ sender:NSButton) {
+        guard let canvas=reader?.canvas else{return};let enabled=sender.state == .on
+        switch sender.tag {
+        case 1:canvas.pressureEnabled=enabled
+        case 2:canvas.automaticShapes=enabled
+        case 3:canvas.tiltEraser=enabled
+        case 4:canvas.automaticPenReturn=enabled
+        case 10:
+            if enabled {followFillButton?.state = .off;customFillButton?.state = .off}
+            if editingShape {
+                if enabled {canvas.editSelectedShapes(removeFill:true)}
+                else {canvas.editSelectedShapes(fill:well.color,fillMatchesBorder:followFillButton?.state == .on)}
+            } else {canvas.shapeFill=enabled ? nil:well.color}
+        case 11:
+            if enabled {noFillButton?.state = .off;customFillButton?.state = .off}
+            if editingShape {
+                noFillButton?.state = .off
+                canvas.editSelectedShapes(fill:well.color,fillMatchesBorder:enabled)
+            } else {
+                canvas.shapeFillFollowsPen=enabled
+                if enabled {noFillButton?.state = .off;canvas.shapeFill=well.color;well.color=canvas.effectiveShapeFill!}
+            }
+        case 12:
+            if enabled {
+                noFillButton?.state = .off;followFillButton?.state = .off
+                if editingShape {canvas.editSelectedShapes(fill:well.color)} else {canvas.shapeFill=well.color;canvas.shapeFillFollowsPen=false}
+            }
+        default:break
+        };canvas.rememberWritingPreferences();reader?.updateParameters()
+    }
+}
+private final class WritingWidthPreview:NSView {
+    var width=1.6
+    var color=NSColor.systemBlue
+    override func draw(_ dirtyRect:NSRect) {
+        NSColor.controlBackgroundColor.setFill();NSBezierPath(roundedRect:bounds,xRadius:6,yRadius:6).fill()
+        color.setStroke();let p=NSBezierPath();p.lineWidth=min(width,26);p.lineCapStyle = .round;p.move(to:CGPoint(x:18,y:16));p.line(to:CGPoint(x:bounds.width-18,y:16));p.stroke()
+    }
 }

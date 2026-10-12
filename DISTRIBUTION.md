@@ -1,17 +1,15 @@
 # Ecru distribution and source
 
-This repository contains the current buildable Ecru source and its public Beta
-distribution materials. Ecru first-party source, documentation and project artwork
-are licensed under Apache-2.0; see LICENSE and NOTICE. Third-party materials retain
-their own licenses in THIRD_PARTY_NOTICES.md, licenses/ and their source directories.
-You may modify and distribute derivatives under the license conditions.
+This repository contains buildable Ecru source and public Beta distribution materials.
+First-party code, documentation and artwork are licensed under Apache-2.0; see LICENSE
+and NOTICE. Third-party materials retain their licenses in THIRD_PARTY_NOTICES.md,
+licenses/ and their source directories. The private development Git history is not imported.
 
-The historical `v0.5.0-beta.1` tag and its arm64 DMG are unchanged. That tag's GitHub
-source archive contains the original distribution documents only. Current `main`
-contains buildable source; new source tags identify the current open-source code.
-The private development repository and its prior history are not imported.
+Beta 3 targets macOS 13+ on Apple Silicon and Intel through independent arm64 and
+x86_64 App/DMG builds. Its source tag identifies the frozen public source used by both
+packages. Historical Beta 1, Beta 2, RC tags and installation packages are immutable.
+Release preparation creates local candidates; preparing a package does not publish a Release.
 
-Beta.2 targets Apple Silicon and Intel through separate arm64 and x86_64 App/DMG
-builds, both requiring macOS 13 or later. The beta.2 tag identifies the exact public
-source used to build both packages. Historical releases and tags remain unchanged.
-Signing is ad hoc; Apple Developer ID signing and notarization are not yet available.
+Signing is ad hoc. Apple Developer ID signing and notarization are not available.
+The default development build remains Ecru Dev, with separate identity, preferences
+and recovery storage. Release builds do not install themselves or replace the daily App.

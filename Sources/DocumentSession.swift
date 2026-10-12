@@ -4,11 +4,13 @@ import CryptoKit
 import Darwin
 
 enum DocumentSessionError: LocalizedError {
-    case invalidPDF, unsupported(String), serialize, validation(String), readOnly, conflict, duplicateTarget, busy, io(String), recoveryCleanup(String)
+    case passwordRequired, incorrectPassword, invalidPDF, unsupported(String), serialize, validation(String), readOnly, conflict, duplicateTarget, busy, io(String), recoveryCleanup(String)
     var errorDescription: String? {
         switch self {
+        case .passwordRequired: return "此 PDF 需要打开密码。"
+        case .incorrectPassword: return "密码不正确，或系统不支持此加密方式。请重新输入。"
         case .invalidPDF: return "无法读取这个 PDF。"
-        case .unsupported(let reason): return "此文件目前不能安全编辑：\(reason)。请使用普通 PDF 的测试副本。"
+        case .unsupported(let reason): return "此文件受到安全保护：\(reason)"
         case .serialize: return "PDF 数据生成失败，当前修改仍在窗口中。"
         case .validation(let detail): return "保存校验失败（\(detail)），原文件未被替换。"
         case .readOnly: return "文件或所在目录不可写；当前修改已保留，请另存。"
@@ -52,6 +54,7 @@ struct RecoveryRecord: Codable {
 final class DocumentSession {
     // The displayed PDF contains original content and foreign/text annotations only.
     // Editable ink lives here, including the active stroke, and is rendered once by its PDFKit page overlay.
+    private(set) var capabilities: PDFCapabilities
     private(set) var document: PDFDocument
     private(set) var annotations = AnnotationStore(pages: [], ink: [])
     private var inkPages: [[InkStroke]] {
@@ -112,34 +115,66 @@ final class DocumentSession {
     var canUndo: Bool { !undoEntries.isEmpty }
     var canRedo: Bool { !redoEntries.isEmpty }
     var statusText: String {
+        if !capabilities.canEdit { return "只读 · " + (capabilities.features & 2 != 0 ? "签名未验证" : "兼容性保护") }
         if conflictDetected { return "文件已在外部修改，当前笔记尚未保存" }
         if let error = lastError, case DocumentSessionError.recoveryCleanup = error { return "恢复记录清理失败" }
         if lastError != nil { return "保存失败" }
         if isSaving { return isModified ? "正在保存 · 未保存" : "正在保存" }
         if isRecovered && isModified { return "已恢复未保存内容 · 未保存" }
-        return isModified ? "未保存" : ""
+        return isModified ? "未保存" : capabilities.mode == .annotationCopy ? "静态批注副本" : ""
     }
 
     static func canonicalURL(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
-    static func open(url: URL) throws -> DocumentSession {
+    static func open(url: URL, password: String? = nil) throws -> DocumentSession {
         let canonical = canonicalURL(url)
         let data = try Data(contentsOf: canonical)
-        guard let document = PDFDocument(data: data), document.pageCount > 0 else { throw DocumentSessionError.invalidPDF }
-        try checkSupported(document: document, data: data)
-        return try DocumentSession(document: document, url: canonical, data: data)
+        guard let original = PDFDocument(data: data) else { throw DocumentSessionError.invalidPDF }
+        if original.isLocked {
+            guard let password else { throw DocumentSessionError.passwordRequired }
+            guard original.unlock(withPassword: password), !original.isLocked else { throw DocumentSessionError.incorrectPassword }
+        }
+        let inspection = try PDFPagePreservation.inspect(data, password: password)
+        var capabilities = PDFCapabilities.assess(inspection.features, allowsCommenting: original.allowsCommenting, allowsPrinting: original.allowsPrinting)
+        if capabilities.canEdit, let keywords=original.documentAttributes?[PDFDocumentAttribute.keywordsAttribute] as? [String], keywords.contains("EcruStaticAnnotationCopy") {
+            capabilities=PDFCapabilities(mode:.annotationCopy,features:inspection.features,reasons:["仅含转换时的静态页面；原动态结构与可编辑批注已移除。"],canCreateStaticCopy:false)
+        }
+        let readingData = inspection.readingData ?? data
+        guard let document = inspection.readingData == nil ? original : PDFDocument(data: readingData), document.pageCount > 0,
+              (0..<document.pageCount).allSatisfy({ i in
+                  guard let p = document.page(at:i) else { return false }
+                  let r=p.bounds(for:.cropBox)
+                  return r.width.isFinite && r.height.isFinite && r.width>0 && r.height>0
+              }) else { throw DocumentSessionError.invalidPDF }
+        return try DocumentSession(document: document, url: canonical, data: data, readingData: readingData, capabilities: capabilities)
     }
 
-    private init(document: PDFDocument, url: URL, data: Data) throws {
+    private init(document: PDFDocument, url: URL, data: Data, readingData: Data, capabilities: PDFCapabilities) throws {
         self.document = document
+        self.capabilities = capabilities
         fileURL = url
         backingData = data
         recoveryBasePDF = data
         originalFingerprint = Self.fingerprint(data)
         originalStructure = PDFStructure(document)
-        originalContent = try PDFContentIntegrity(data)
+        do { originalContent = try PDFContentIntegrity(readingData) }
+        catch {
+            originalContent=PDFContentIntegrity(pageCount:document.pageCount)
+            if capabilities.canEdit {
+                self.capabilities=PDFCapabilities(mode:.readOnly,features:capabilities.features,reasons:["页面资源完整性未通过检查；允许阅读，禁止修改和保存。"],canCreateStaticCopy:false)
+            }
+        }
         savedRevision = revision
         dataDirectory = EcruEnvironment.applicationSupportDirectory
         importEditableInk()
+        // Prove the specific form/attachment can survive this export before enabling editing.
+        if capabilities.features & (4|16) != 0 && !annotationReadOnly && portableData(portableDocument()) == nil {
+            self.capabilities=PDFCapabilities(mode:.readOnly,features:capabilities.features,reasons:["此文件的表单或附件未通过对象保留预检，禁止修改和保存。"],canCreateStaticCopy:false)
+            guard let original=PDFDocument(data:readingData) else { throw DocumentSessionError.invalidPDF }
+            self.document=original;importEditableInk()
+        }
+        // Ecru supports annotations around forms, not field-value editing. Never let native
+        // widgets acquire mutable values in the presentation while saving the original field tree.
+        for page in backingPages { for a in page.annotations where a.type == "Widget" { a.isReadOnly=true } }
     }
 
     private func importEditableInk() {
@@ -149,7 +184,19 @@ final class DocumentSession {
             annotations.pages[i].contentHash = AnnotationPDF.hash(Data(originalContent.pages[i].utf8))
         }
         managedSourceSlots = backingPages.map { _ in [] }; sourceMarkSlots = [:]
-        annotationWarnings = []; annotationReadOnly = false
+        annotationWarnings = []; annotationReadOnly = !capabilities.canEdit
+        if annotationReadOnly {
+            // Keep original annotations and widget appearances in the reading view.
+            // Never remove adapters or start recovery for protected documents.
+            for page in backingPages {
+                for a in page.annotations {
+                    if let raw=a.value(forAnnotationKey:AnnotationPDF.noteKey) as? String, let id=UUID(uuidString:raw) {
+                        annotations.notes.append(AnnotationNote(id:id,markdown:a.contents ?? "",anchors:[],links:[],locationUncertain:true))
+                    }
+                }
+            }
+            return
+        }
         var manifests: [String] = []
         var marked: [UUID: [(Int, PDFAnnotation)]] = [:]
         var bodies: [UUID: [PDFAnnotation]] = [:]
@@ -200,6 +247,9 @@ final class DocumentSession {
                         }
                     }
                 }
+                for image in annotations.images {
+                    if let values=marked[image.id],values.count==1, (values[0].0 != image.page || !ImagePDFAnnotation.compatible(image,values[0].1)) {annotationReadOnly=true}
+                }
                 let noteIDs = Set(annotations.notes.map(\.id))
                 if bodies.keys.contains(where: { !noteIDs.contains($0) }) { annotationReadOnly = true }
                 for note in annotations.notes {
@@ -209,6 +259,9 @@ final class DocumentSession {
                 let missing = ids.subtracting(marked.keys)
                 if !missing.isEmpty {
                     annotationWarnings.append("部分页面标记已在外部移除；正文与定位已保留，不会重新生成这些标记。")
+                    annotations.images.removeAll {missing.contains($0.id)}
+                    annotations.groups=annotations.groups.compactMap{var g=$0;g.members.removeAll{missing.contains($0)};return g.members.count>=2 ? g:nil}
+                    annotations.objectOrder=annotations.objectOrder?.filter{!missing.contains($0)}
                     annotations.marks.removeAll { missing.contains($0.id) }
                     for i in annotations.ink.indices { annotations.ink[i].removeAll { missing.contains($0.id) } }
                 }
@@ -242,7 +295,7 @@ final class DocumentSession {
                 }
             }
             annotationWarnings.append("批注格式或标准内容存在冲突：受限只读，禁止保存覆盖。原始数据保留在 PDF 中；可在批注框复制正文。")
-            annotations.ink = backingPages.map { _ in [] }
+            annotations.ink = backingPages.map { _ in [] }; annotations.images=[]
             return
         }
         for (pi,page) in backingPages.enumerated() {
@@ -261,7 +314,8 @@ final class DocumentSession {
                     managedSourceSlots[pi].insert(slot); page.removeAnnotation(a)
                 } else if a.type == "Highlight" {
                     // Preserve foreign highlights verbatim until explicitly adopted or deleted.
-                    let mark = AnnotationPDF.mark(a,page:pi,pageID:annotations.pages[pi].id)
+                    var mark = AnnotationPDF.mark(a,page:pi,pageID:annotations.pages[pi].id)
+                    mark.textEditable = a.contents == "LeafInk text highlight"
                     annotations.marks.append(mark); sourceMarkSlots[mark.id]=(pi,slot); managedSourceSlots[pi].insert(slot); page.removeAnnotation(a)
                 }
             }
@@ -288,7 +342,8 @@ final class DocumentSession {
             for a in page.annotations where a.type == "Highlight" || a.type == "Square" {
                 if let str = a.value(forAnnotationKey: AnnotationPDF.adapterKey) as? String, let id = UUID(uuidString:str) { present.insert(id) }
                 else if a.type == "Highlight" {
-                    let mark = AnnotationPDF.mark(a,page:pi,pageID:annotations.pages[pi].id)
+                    var mark = AnnotationPDF.mark(a,page:pi,pageID:annotations.pages[pi].id)
+                    mark.textEditable = a.contents == "LeafInk text highlight"
                     annotations.marks.append(mark); present.insert(mark.id)
                     a.setValue(mark.id.uuidString,forAnnotationKey:AnnotationPDF.adapterKey)
                 }
@@ -326,9 +381,75 @@ final class DocumentSession {
             }
         }
         annotations.minimumReader=max(replacements.map(\.requiredReader).max() ?? 1,annotations.minimumReader)
+        let removed=Set(inkPages[index].filter{ids.contains($0.id)}.map(\.id)).subtracting(replacements.map(\.id))
+        if !removed.isEmpty {
+            if let order=annotations.objectOrder,let position=order.firstIndex(where:{removed.contains($0)}) {
+                var next=order.filter{!removed.contains($0)};next.insert(contentsOf:replacements.map(\.id).filter{!next.contains($0)},at:min(position,next.count));annotations.objectOrder=next
+            }
+            annotations.groups=annotations.groups.compactMap{var g=$0;let included = !Set(g.members).isDisjoint(with:removed);g.members.removeAll{removed.contains($0)};if ids.count==1,included {g.members += replacements.map(\.id).filter{!g.members.contains($0)}};return g.members.count>=2 ? g:nil}
+        }
         inkPages[index].removeAll { ids.contains($0.id) }
         inkPages[index].insert(contentsOf: replacements, at: min(insertion, inkPages[index].count))
         if !damaged.isNull { onInkChange?(page, damaged, .replaced(ids.union(replacements.map(\.id)))) }
+    }
+
+    func images(on page:PDFPage)->[PageImage] {annotations.images.filter{$0.page==document.index(for:page)}}
+    @discardableResult func insertImage(_ data:Data,on page:PDFPage,rect:CGRect)throws->UUID {
+        guard !annotationReadOnly,!currentFileIsReadOnly else {throw DocumentSessionError.readOnly}
+        let index=document.index(for:page),key=AnnotationPDF.hash(data)
+        guard annotations.pages.indices.contains(index),rect.width>=0.1,rect.height>=0.1 else{throw DocumentSessionError.invalidPDF}
+        var next=annotations;next.minimumReader=5
+        next.imageAssets=next.imageAssets ?? [:];next.imageAssets?[key]=data
+        let object=PageImage(page:index,asset:key,rect:rect);next.images.append(object)
+        // New images sit behind every existing Ecru stroke/image; later writing sits above.
+        next.objectOrder=[object.id]+(next.objectOrder ?? annotations.ink.flatMap{$0.map(\.id)}+annotations.images.map(\.id))
+        _=try AnnotationPDF.encode(next) // Enforce total manifest budget before changing user data.
+        guard beginInkAction("插入图片") else{throw DocumentSessionError.readOnly}
+        annotations=next;onInkChange?(page,object.bounds,.reset);finishAction();return object.id
+    }
+    func replaceObjects(on page:PDFPage,ids:Set<UUID>,ink:[InkStroke],images:[PageImage],marks:[PageMark]=[]) {
+        precondition(pendingAction != nil)
+        replaceInk(on:page,ids:Set(inkPages[document.index(for:page)].filter{ids.contains($0.id)}.map(\.id)),with:ink)
+        annotations.images.removeAll{ids.contains($0.id)};annotations.images += images
+        let previousMarks=annotations.marks.filter{ids.contains($0.id)}
+        annotations.marks.removeAll{ids.contains($0.id)};annotations.marks += marks
+        let retained=Set(ink.map(\.id)+images.map(\.id)+marks.map(\.id)),removed=ids.subtracting(retained)
+        annotations.groups=annotations.groups.compactMap{var g=$0;g.members.removeAll{removed.contains($0)};return g.members.count>=2 ? g:nil}
+        annotations.objectOrder=annotations.objectOrder?.filter{!removed.contains($0)}
+        for n in annotations.notes.indices {annotations.notes[n].links.removeAll{removed.contains($0.markID)}}
+        if !previousMarks.isEmpty || !marks.isEmpty {syncMarkAdapters()}
+        onInkChange?(page,page.bounds(for:.cropBox),.reset)
+    }
+    func pasteObjects(_ packet:ObjectClipboard,on page:PDFPage,center:CGPoint)throws->Set<UUID> {
+        guard !annotationReadOnly,!currentFileIsReadOnly else{throw DocumentSessionError.readOnly}
+        let ids=packet.ink.map(\.id)+packet.images.map(\.id)+packet.marks.map(\.id)
+        guard !ids.isEmpty,Set(ids).count==ids.count else{throw DocumentSessionError.invalidPDF}
+        let bounds=(packet.ink.map(\.bounds)+packet.images.map(\.bounds)+packet.marks.map{$0.anchor.bounds}).reduce(CGRect.null){$0.union($1)}
+        let transform=CGAffineTransform(translationX:center.x-bounds.midX,y:center.y-bounds.midY)
+        let mapping=Dictionary(uniqueKeysWithValues:ids.map{($0,UUID())}),index=document.index(for:page)
+        var next=annotations;next.minimumReader=5;next.imageAssets=next.imageAssets ?? [:]
+        for (key,data) in packet.assets {next.imageAssets?[key]=data}
+        next.ink[index] += packet.ink.map{var stroke=$0.applying(transform);stroke.id=mapping[$0.id]!;return stroke}
+        next.images += packet.images.map{var image=$0;image.id=mapping[$0.id]!;image.page=index;image.rect=image.rect.applying(transform);return image}
+        next.marks += packet.marks.map{var mark=$0;mark.id=mapping[$0.id]!;mark.anchor.page=index;mark.anchor.pageID=next.pages[index].id;mark.anchor.bounds=mark.anchor.bounds.applying(transform);mark.quads=mark.quads.map{InkPoint($0.cgPoint.applying(transform))};mark.textSpan=nil;mark.textEditable=false;return mark}
+        next.groups += packet.groups.map{AnnotationGroup(members:$0.members.compactMap{mapping[$0]})}
+        next.objectOrder=annotations.ink.indices.flatMap{annotations.orderedIDs(on:$0)}+packet.order.compactMap{mapping[$0]}
+        _=try AnnotationPDF.encode(next)
+        guard beginInkAction("粘贴对象") else{throw DocumentSessionError.readOnly}
+        annotations=next;syncMarkAdapters();onInkChange?(page,page.bounds(for:.cropBox),.reset);finishAction();return Set(mapping.values)
+    }
+    func groupObjects(_ ids:Set<UUID>,ungroup:Bool=false) {
+        guard ids.count>=2 || ungroup,beginInkAction(ungroup ? "取消组合":"组合对象") else{return}
+        let expanded=annotations.expanded(ids)
+        annotations.groups.removeAll{!expanded.isDisjoint(with:$0.members)}
+        if !ungroup,expanded.count>=2,Set(expanded.compactMap{annotations.pageIndex(for:$0)}).count==1 {annotations.groups.append(AnnotationGroup(members:Array(expanded)));annotations.minimumReader=5}
+        finishAction()
+    }
+    func arrangeObjects(_ ids:Set<UUID>,front:Bool) {
+        guard beginInkAction(front ? "移到最前":"移到最后") else{return}
+        let all=annotations.ink.indices.flatMap{annotations.orderedIDs(on:$0)},moving=all.filter{ids.contains($0)},rest=all.filter{!ids.contains($0)}
+        annotations.objectOrder=front ? rest+moving:moving+rest;annotations.minimumReader=5
+        onInkChange?(document.page(at:annotations.pageIndex(for:ids.first!) ?? 0)!,document.page(at:0)!.bounds(for:.cropBox),.reset);finishAction()
     }
 
     func appendInkPoint(_ point: CGPoint, to id: UUID, on page: PDFPage) {
@@ -391,14 +512,19 @@ final class DocumentSession {
             for (slot,a) in page.annotations.enumerated() where managedSourceSlots[index].contains(slot) { page.removeAnnotation(a) }
         }
         for mark in annotations.marks {
-            let a = originals[mark.id] ?? AnnotationPDF.make(mark)
+            let original=originals[mark.id]
+            let a = original.flatMap { AnnotationPDF.compatible(mark,$0) ? $0:nil } ?? AnnotationPDF.make(mark)
             a.setValue(mark.id.uuidString,forAnnotationKey:AnnotationPDF.markKey)
             exported.page(at:mark.anchor.page)?.addAnnotation(a)
         }
-        for (index,strokes) in inkPages.enumerated() {
-            for stroke in strokes {
-                let a = InkAnnotationCodec.make(stroke); a.setValue(stroke.id.uuidString,forAnnotationKey:AnnotationPDF.markKey)
-                exported.page(at:index)?.addAnnotation(a)
+        for index in inkPages.indices {
+            for id in annotations.orderedIDs(on:index) {
+                if let image=annotations.images.first(where:{$0.id==id}),let data=annotations.imageAssets?[image.asset] {
+                    exported.page(at:index)?.addAnnotation(ImagePDFAnnotation(image,data:data))
+                } else if let stroke=inkPages[index].first(where:{$0.id==id}) {
+                    let a=InkAnnotationCodec.make(stroke);a.setValue(id.uuidString,forAnnotationKey:AnnotationPDF.markKey)
+                    exported.page(at:index)?.addAnnotation(a)
+                }
             }
         }
         do { try AnnotationPDF.install(annotations,into:exported) } catch { return nil }
@@ -407,7 +533,7 @@ final class DocumentSession {
 
     private func portableData(_ exported: PDFDocument?) -> Data? {
         guard let bytes = exported?.dataRepresentation() else { return nil }
-        return PDFPagePreservation.preserve(backingData, in: bytes)
+        return PDFPagePreservation.preserve(backingData, in: bytes, removing: managedSourceSlots)
     }
 
     @discardableResult
@@ -454,6 +580,10 @@ final class DocumentSession {
         // A failed after-snapshot keeps the action dirty and in memory. Navigation,
         // close/save and later edits cannot silently treat it as a clean document.
         if !before.inkOnly { captureNativeHighlights() }
+        let existing=annotations.allMarkIDs
+        if annotations.objectGroups != nil {annotations.groups=annotations.groups.compactMap{var g=$0;g.members.removeAll{!existing.contains($0)};return g.members.count>=2 ? g:nil}}
+        annotations.objectOrder=annotations.objectOrder?.filter{existing.contains($0)}
+        let usedAssets=Set(annotations.images.map(\.asset));annotations.imageAssets=annotations.imageAssets?.filter{usedAssets.contains($0.key)}
         guard let after = before.inkOnly ? inkSnapshot() : snapshot() else { return }
         pendingAction = nil
         bodyActionID = nil
@@ -511,7 +641,7 @@ final class DocumentSession {
     private func invalidateModelDifference(_ old: AnnotationStore) {
         for (i,page) in backingPages.enumerated() {
             if old.ink.indices.contains(i), annotations.ink.indices.contains(i),
-                old.ink[i] != annotations.ink[i] || old.marks.filter({$0.anchor.page == i}) != annotations.marks.filter({$0.anchor.page == i}) {
+                old.images != annotations.images || old.objectOrder != annotations.objectOrder || old.ink[i] != annotations.ink[i] || old.marks.filter({$0.anchor.page == i}) != annotations.marks.filter({$0.anchor.page == i}) {
                 onInkChange?(page,page.bounds(for:.cropBox),.reset)
             }
         }
@@ -521,7 +651,7 @@ final class DocumentSession {
     func save(to proposedURL: URL? = nil, completion: @escaping (Result<SaveOutcome, Error>) -> Void) {
         precondition(Thread.isMainThread)
         finishAction()
-        guard !annotationReadOnly else { completion(.failure(DocumentSessionError.unsupported("批注冲突或新格式，只读保护"))); return }
+        guard !annotationReadOnly else { completion(.failure(DocumentSessionError.unsupported(capabilities.canEdit ? "批注冲突或新格式，只读保护" : capabilities.summary))); return }
         guard !isSaving else { completion(.failure(DocumentSessionError.busy)); return }
         let target = Self.canonicalURL(proposedURL ?? fileURL)
         let sameTarget = target == fileURL
@@ -535,6 +665,8 @@ final class DocumentSession {
         let capturedRevision = revision
         let fidelity = PDFFidelity(exported)
         let expectedOpacity = AppearanceOpacityExpectation.capture(exported)
+        let originalBytes = backingData
+        let removedSlots = managedSourceSlots
         let structure = originalStructure
         let content = originalContent
         let expectedFingerprint: String?
@@ -552,6 +684,9 @@ final class DocumentSession {
                 hook?()
                 guard let reopened = PDFDocument(data: bytes) else { throw DocumentSessionError.validation("重开失败") }
                 try Self.checkSupported(document: reopened, data: bytes)
+                guard PDFPagePreservation.validate(originalBytes, saved:bytes, removing:removedSlots) else {
+                    throw DocumentSessionError.validation("表单、附件或未修改对象关系改变")
+                }
                 let reopenedStructure = PDFStructure(reopened)
                 guard reopenedStructure == structure else {
                     if EcruEnvironment.value("ECRU_TEST_DIAGNOSTICS") == "1" {
@@ -612,6 +747,82 @@ final class DocumentSession {
         }
     }
 
+    /// Explicitly lossy conversion after UI consent. No permissions/encryption/signature bypass.
+    /// Generate from the inert reading view into a brand new file; never replace any file.
+    func createStaticAnnotationCopy(to url: URL) throws {
+        precondition(Thread.isMainThread)
+        guard capabilities.canCreateStaticCopy, !isModified else { throw DocumentSessionError.unsupported(capabilities.summary) }
+        let target=Self.canonicalURL(url)
+        guard target != fileURL, !FileManager.default.fileExists(atPath:target.path) else { throw DocumentSessionError.io("副本必须使用尚不存在的新文件名") }
+        guard isTargetOpenElsewhere?(target) != true else { throw DocumentSessionError.duplicateTarget }
+        // PDFPage.copy() can retain the source document/page backing. Changing its
+        // rotation then notifies the live PDFThumbnailView, including while hidden.
+        // Render from independently parsed, inert bytes so conversion never mutates
+        // or sends page-geometry notifications for the document bound to the reader.
+        let drawingInspection = try PDFPagePreservation.inspect(backingData, password: nil)
+        guard let drawingDocument = PDFDocument(data: drawingInspection.readingData ?? backingData),
+              drawingDocument.pageCount == document.pageCount else { throw DocumentSessionError.serialize }
+        let bytes=NSMutableData()
+        guard let consumer=CGDataConsumer(data:bytes), let context=CGContext(consumer:consumer,mediaBox:nil,nil) else { throw DocumentSessionError.serialize }
+        for i in 0..<document.pageCount {
+            guard let page=document.page(at:i) else { throw DocumentSessionError.invalidPDF }
+            var box=page.bounds(for:.mediaBox), crop=page.bounds(for:.cropBox)
+            let boxData=Data(bytes:&box,count:MemoryLayout<CGRect>.size)
+            let cropData=Data(bytes:&crop,count:MemoryLayout<CGRect>.size)
+            context.beginPDFPage([kCGPDFContextMediaBox as String:boxData,kCGPDFContextCropBox as String:cropData] as CFDictionary)
+            guard let drawing=drawingDocument.page(at:i) else { throw DocumentSessionError.serialize }
+            // PDFPage.draw applies /Rotate. Paint once at zero rotation, then restore
+            // the source /Rotate on the output page so rotated/cropped pages are not double-rotated.
+            drawing.rotation=0;drawing.draw(with:.mediaBox,to:context)
+            context.endPDFPage()
+        }
+        context.closePDF()
+        guard let copy=PDFDocument(data:bytes as Data),copy.pageCount==document.pageCount else { throw DocumentSessionError.serialize }
+        for i in 0..<copy.pageCount { copy.page(at:i)?.rotation=document.page(at:i)!.rotation }
+        copy.documentAttributes=[PDFDocumentAttribute.subjectAttribute:"Ecru 静态批注副本：动态结构与原有可编辑批注已移除", PDFDocumentAttribute.keywordsAttribute:["EcruStaticAnnotationCopy"]]
+        guard let data=copy.dataRepresentation() else { throw DocumentSessionError.serialize }
+        try Self.checkSupported(document:copy,data:data)
+        let inspection=try PDFPagePreservation.inspect(data,password:nil)
+        guard inspection.features == 0, (0..<copy.pageCount).allSatisfy({ copy.page(at:$0)?.annotations.isEmpty == true }) else { throw DocumentSessionError.validation("静态副本仍包含原有交互结构") }
+        guard let verified=PDFDocument(data:data),verified.pageCount==document.pageCount else { throw DocumentSessionError.validation("静态副本重开失败") }
+        for i in 0..<document.pageCount {
+            let before=document.page(at:i)!,after=verified.page(at:i)!
+            guard before.rotation==after.rotation, AnnotationPDF.close(AnnotationPDF.identity(before).crop,AnnotationPDF.identity(after).crop),
+                  Self.staticTextPreserved(before.string ?? "",in:after.string ?? ""),
+                  Self.sameStaticAppearance(before,after) else { throw DocumentSessionError.validation("第 \(i+1) 页静态内容或显示改变，未创建副本") }
+        }
+        try Self.atomicWrite(data,target:target,expectedFingerprint:nil)
+    }
+
+    private static func staticTextPreserved(_ original:String,in copy:String) -> Bool {
+        func inventory(_ value:String)->[Character:Int] {
+            value.filter { !$0.isWhitespace }.reduce(into:[:]) { $0[$1,default:0]+=1 }
+        }
+        let output=inventory(copy)
+        // Flattened widget appearances become additional searchable page text.
+        return inventory(original).allSatisfy { output[$0.key,default:0] >= $0.value }
+    }
+
+    private static func sameStaticAppearance(_ before:PDFPage,_ after:PDFPage) -> Bool {
+        func pixels(_ page:PDFPage)->[UInt8]? {
+            let image=page.thumbnail(of:CGSize(width:512,height:512),for:.cropBox)
+            var rect=CGRect(origin:.zero,size:image.size)
+            guard let cg=image.cgImage(forProposedRect:&rect,context:nil,hints:nil) else{return nil}
+            var bytes=[UInt8](repeating:255,count:512*512*4)
+            let ok=bytes.withUnsafeMutableBytes { buffer -> Bool in
+                guard let context=CGContext(data:buffer.baseAddress,width:512,height:512,bitsPerComponent:8,bytesPerRow:512*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue) else{return false}
+                context.setFillColor(CGColor(gray:1,alpha:1));context.fill(CGRect(x:0,y:0,width:512,height:512))
+                context.draw(cg,in:CGRect(x:0,y:0,width:512,height:512));return true
+            }
+            return ok ? bytes : nil
+        }
+        guard let a=pixels(before),let b=pixels(after) else{return false}
+        var total=0,changed=0
+        for i in a.indices { let difference=abs(Int(a[i])-Int(b[i]));total+=difference;if difference>24 {changed+=1} }
+        // Allow raster antialiasing drift, reject lost fields, drawings or page transforms.
+        return Double(total)/Double(a.count)<1 && Double(changed)/Double(a.count)<0.005
+    }
+
     private func failSave(_ error: Error, completion: (Result<SaveOutcome, Error>) -> Void) {
         lastError = error
         onChange?()
@@ -620,15 +831,15 @@ final class DocumentSession {
 
     var recoverableRecord: RecoveryRecord? {
         recoveryWriter.flush()
-        guard let data = try? Data(contentsOf: recoveryURL), let record = try? JSONDecoder().decode(RecoveryRecord.self, from: data), (1...5).contains(record.version),
+        guard let data = try? Data(contentsOf: recoveryURL), let record = try? JSONDecoder().decode(RecoveryRecord.self, from: data), (1...7).contains(record.version),
               Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL else { return nil }
         return record
     }
 
     func restoreRecovery(_ record: RecoveryRecord) throws {
         precondition(Thread.isMainThread)
-        guard !annotationReadOnly else { throw DocumentSessionError.unsupported("当前 PDF 的批注格式受保护，保留恢复记录，禁止用旧草稿覆盖") }
-        guard (1...5).contains(record.version), Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL,
+        guard !annotationReadOnly else { throw DocumentSessionError.unsupported("当前 PDF 只读，保留恢复记录，禁止用旧草稿覆盖") }
+        guard (1...7).contains(record.version), Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL,
         let restored = PDFDocument(data: record.pdfData) else { throw DocumentSessionError.invalidPDF }
         try Self.checkSupported(document: restored, data: record.pdfData)
         if record.version == 2 {
@@ -667,6 +878,7 @@ final class DocumentSession {
             }
             syncMarkAdapters()
         }
+        capabilities = PDFCapabilities.assess(try PDFPagePreservation.inspect(record.pdfData,password:nil).features, allowsCommenting:restored.allowsCommenting, allowsPrinting:restored.allowsPrinting)
         originalStructure = PDFStructure(restored)
         originalContent = recoveredContent
         revision = UUID() // Recovery always remains unsaved, even if its bytes equal disk.
@@ -680,6 +892,7 @@ final class DocumentSession {
 
     @discardableResult
     func discardRecovery() -> Bool {
+        guard capabilities.canEdit else { return true } // Protected opens never delete existing drafts.
         let result = clearRecoveryRecords(at: pendingOldRecoveryURLs.union([recoveryURL]))
         onChange?()
         return result
@@ -717,6 +930,7 @@ final class DocumentSession {
     }
 
     func checkpointRecovery(captured: Data? = nil) {
+        guard !annotationReadOnly else { return }
         recoveryWriter.cancelAndWait()
         if !isModified { discardRecovery(); return }
         let generated = recoveryDataProvider.map { $0() } ?? captured ?? portableData(portableDocument())
@@ -738,7 +952,7 @@ final class DocumentSession {
 
     private func scheduleInkRecovery() {
         if !isModified { discardRecovery(); return }
-        let record = RecoveryRecord(version: annotations.minimumReader>=3 ? 5 : (annotations.minimumReader>=2 ? 4 : 3), sourcePath: fileURL.path,
+        let record = RecoveryRecord(version: annotations.minimumReader>=5 ? 7 : annotations.minimumReader>=4 ? 6 : annotations.minimumReader>=3 ? 5 : (annotations.minimumReader>=2 ? 4 : 3), sourcePath: fileURL.path,
             originalFingerprint: originalFingerprint, pdfData: backingData,
             revision: revision, updatedAt: Date(), ink: inkPages, annotations: annotations,
             markOrigins: sourceMarkSlots.map { MarkSourceOrigin(id: $0.key, page: $0.value.0, slot: $0.value.1) })
@@ -756,24 +970,10 @@ final class DocumentSession {
     private static func fingerprint(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
 
     private static func checkSupported(document: PDFDocument, data: Data) throws {
-        if document.isEncrypted || document.isLocked { throw DocumentSessionError.unsupported("加密 PDF") }
-        if data.range(of: Data("/ByteRange".utf8)) != nil { throw DocumentSessionError.unsupported("带数字签名的 PDF") }
-        guard let provider = CGDataProvider(data: data as CFData), let cg = CGPDFDocument(provider), let catalog = cg.catalog else { throw DocumentSessionError.invalidPDF }
-        var object: CGPDFObjectRef?
-        for key in ["AcroForm", "Collection", "Perms", "AF"] {
-            if CGPDFDictionaryGetObject(catalog, key, &object) { throw DocumentSessionError.unsupported("表单、签名或附件结构（\(key)）") }
-        }
-        var names: CGPDFDictionaryRef?
-        if CGPDFDictionaryGetDictionary(catalog, "Names", &names), let names = names, CGPDFDictionaryGetObject(names, "EmbeddedFiles", &object) {
-            throw DocumentSessionError.unsupported("嵌入附件")
-        }
-        for index in 0..<document.pageCount {
-            for annotation in document.page(at: index)?.annotations ?? [] {
-                if ["Widget", "RichMedia", "Movie", "Sound", "FileAttachment", "Screen", "3D"].contains(annotation.type ?? "") {
-                    throw DocumentSessionError.unsupported("\(annotation.type ?? "交互")批注")
-                }
-            }
-        }
+        guard !document.isLocked, document.pageCount>0 else { throw DocumentSessionError.invalidPDF }
+        let result = try PDFPagePreservation.inspect(data,password:nil)
+        let ability = PDFCapabilities.assess(result.features,allowsCommenting:document.allowsCommenting,allowsPrinting:document.allowsPrinting)
+        guard ability.canEdit else { throw DocumentSessionError.unsupported(ability.summary) }
     }
 
     private static func atomicWrite(_ bytes: Data, target: URL, expectedFingerprint: String?) throws {
@@ -827,21 +1027,128 @@ final class DocumentSession {
         }
         return anchor
     }
-    @discardableResult func addTextSelection(_ selection: PDFSelection, color: NSColor = .systemYellow, withNote: Bool) -> UUID? {
-        guard beginInkAction(withNote ? "添加选文批注" : "文字高亮") else { return nil }
-        var links: [NoteLink] = []; var anchors: [PageAnchor] = []
-        let c = color.usingColorSpace(.sRGB) ?? .systemYellow
-        for line in selection.selectionsByLine() {
-            for page in line.pages {
-                let rect = line.bounds(for:page); guard rect.width > 0, rect.height > 0 else { continue }
-                let anchor = pageAnchor(page:page,bounds:rect,quote:line.string ?? "")
-                let mark = PageMark(kind:.highlight,anchor:anchor,rgba:[c.redComponent,c.greenComponent,c.blueComponent,0.45],quads:[InkPoint(x:0,y:rect.height),InkPoint(x:rect.width,y:rect.height),InkPoint(x:0,y:0),InkPoint(x:rect.width,y:0)])
-                annotations.marks.append(mark); anchors.append(anchor); links.append(NoteLink(markID:mark.id,owned:true))
+    private func visibleTextIndices(_ indices:IndexSet, on page:PDFPage) -> IndexSet {
+        let text=(page.string ?? "") as NSString
+        return IndexSet(indices.filter { i in
+            guard i>=0,i<text.length else{return false}
+            let c=text.character(at:i)
+            return c != 10 && c != 13 && c != 0x2028 && c != 0x2029
+        })
+    }
+    private func textIndices(_ mark: PageMark, on page: PDFPage) -> IndexSet {
+        // Text extraction order may change after PDFKit serialization. Check the
+        // stored range against the original geometry before using its indices.
+        if let span=mark.textSpan,span.location+span.length<=page.numberOfCharacters,
+           let selected=page.selection(for:span.range),AnnotationPDF.close(selected.bounds(for:page),mark.anchor.bounds) {
+            return visibleTextIndices(IndexSet(integersIn:span.location..<span.location+span.length),on:page)
+        }
+        var indices=IndexSet()
+        let rect=mark.anchor.bounds
+        for i in 0..<page.numberOfCharacters {
+            // characterBounds uses a different glyph inventory on some PDFs.
+            let b=page.selection(for:NSRange(location:i,length:1))?.bounds(for:page) ?? .zero
+            guard !b.isEmpty,rect.insetBy(dx:-0.1,dy:-0.1).contains(CGPoint(x:b.midX,y:b.midY)) else{continue}
+            if mark.quads.isEmpty {indices.insert(i)}
+            else {
+                for offset in stride(from:0,to:mark.quads.count-3,by:4) {
+                    let q=[0,1,3,2].map {j in CGPoint(x:rect.minX+mark.quads[offset+j].x,y:rect.minY+mark.quads[offset+j].y)}
+                    if InkGeometry.contains(CGPoint(x:b.midX,y:b.midY),polygon:q) {indices.insert(i);break}
+                }
+            }
+        };return visibleTextIndices(indices,on:page)
+    }
+    private func textFragments(_ indices: IndexSet, page: PDFPage, template: PageMark? = nil, rgba: [Double]) -> [PageMark] {
+        var result:[PageMark]=[]
+        for range in indices.rangeView {
+            guard let selection=page.selection(for:NSRange(location:range.lowerBound,length:range.count)) else{continue}
+            for line in selection.selectionsByLine() {
+                for n in 0..<line.numberOfTextRanges(on:page) {
+                    let expanded=line.range(at:n,on:page)
+                    guard expanded.location != NSNotFound,expanded.length>0 else{continue}
+                    // PDFKit includes a synthetic newline in the final glyph's range.
+                    // Never let that expansion recreate punctuation outside the requested range.
+                    let clipped=visibleTextIndices(IndexSet(integersIn:expanded.location..<expanded.location+expanded.length).intersection(indices),on:page)
+                    for span in clipped.rangeView {
+                        let r=NSRange(location:span.lowerBound,length:span.count)
+                        guard let exact=page.selection(for:r) else{continue}
+                        let rect=exact.bounds(for:page)
+                        guard rect.width>0,rect.height>0 else{continue}
+                        var mark=PageMark(kind:.highlight,anchor:pageAnchor(page:page,bounds:rect,quote:exact.string ?? ""),rgba:rgba,
+                            quads:[InkPoint(x:0,y:rect.height),InkPoint(x:rect.width,y:rect.height),InkPoint(x:0,y:0),InkPoint(x:rect.width,y:0)])
+                        mark.textSpan=TextSpan(location:r.location,length:r.length);mark.textEditable=true
+                        if let template {mark.contents=template.contents;mark.userName=template.userName;mark.display=template.display;mark.print=template.print}
+                        result.append(mark)
+                    }
+                }
+            }
+        };return result
+    }
+    /// One selection-wide toggle, with subtraction confined to editable Ecru ranges.
+    @discardableResult func addTextSelection(_ selection: PDFSelection, color: NSColor = NSColor.systemYellow.withAlphaComponent(0.45), withNote: Bool) -> UUID? {
+        let c=color.usingColorSpace(.sRGB) ?? .systemYellow
+        let rgba:[Double]=[Double(c.redComponent),Double(c.greenComponent),Double(c.blueComponent),Double(c.alphaComponent)]
+        var selected:[Int:IndexSet]=[:]
+        for page in selection.pages {
+            var indices=IndexSet()
+            let text=(page.string ?? "") as NSString
+            for n in 0..<selection.numberOfTextRanges(on:page) {
+                let r=selection.range(at:n,on:page)
+                guard r.location != NSNotFound,r.location>=0,r.length>0,r.location+r.length<=page.numberOfCharacters else{continue}
+                for i in r.location..<r.location+r.length {
+                    let code=i<text.length ? text.character(at:i):0
+                    if code != 10 && code != 13 && code != 0x2028 && code != 0x2029 {indices.insert(i)}
+                }
+            }
+            if !indices.isEmpty {selected[document.index(for:page)]=indices}
+        }
+        guard !selected.isEmpty,beginInkAction(withNote ? "添加选文批注":"切换文字高亮") else{return nil}
+        var fullySame=true
+        for (pi,indices) in selected {
+            let page=document.page(at:pi)!
+            var covered=IndexSet()
+            for mark in annotations.marks where mark.kind == .highlight && mark.anchor.page == pi && mark.textEditable != false && zip(mark.rgba,rgba).allSatisfy({abs($0-$1)<0.005}) {covered.formUnion(textIndices(mark,on:page))}
+            if !indices.subtracting(covered).isEmpty {fullySame=false}
+        }
+        var affected:[PageAnchor]=[],added:[PageMark]=[]
+        var transferred:[(Int,IndexSet,Int,Bool)]=[]
+        for (pi,indices) in selected {
+            let page=document.page(at:pi)!
+            for old in annotations.marks.filter({$0.kind == .highlight && $0.anchor.page == pi && $0.textEditable != false}) {
+                let oldIndices=textIndices(old,on:page)
+                guard !oldIndices.intersection(indices).isEmpty else{continue}
+                let fragments=textFragments(oldIndices.subtracting(indices),page:page,template:old,rgba:old.rgba)
+                annotations.marks.removeAll{$0.id==old.id};annotations.marks+=fragments;affected.append(old.anchor)
+                for n in annotations.notes.indices {
+                    if let link=annotations.notes[n].links.first(where:{$0.markID==old.id}) {
+                        transferred.append((pi,oldIndices.intersection(indices),n,link.owned))
+                        annotations.notes[n].links.removeAll{$0.markID==old.id}
+                        annotations.notes[n].links+=fragments.map{NoteLink(markID:$0.id,owned:link.owned)}
+                        // Body and anchors survive even when the highlight is gone.
+                    }
+                }
+            }
+            if !fullySame || withNote {added+=textFragments(indices,page:page,rgba:rgba)}
+        }
+        if !withNote {
+            var owned=Set<UUID>()
+            for mark in added {
+                let indices=textIndices(mark,on:document.page(at:mark.anchor.page)!)
+                for (pi,overlap,n,isOwner) in transferred where pi==mark.anchor.page && !overlap.intersection(indices).isEmpty {
+                    if !annotations.notes[n].links.contains(where:{$0.markID==mark.id}) {
+                        let owns=isOwner && !owned.contains(mark.id);if owns{owned.insert(mark.id)}
+                        annotations.notes[n].links.append(NoteLink(markID:mark.id,owned:owns))
+                    }
+                }
             }
         }
-        var id: UUID?
-        if withNote && !anchors.isEmpty { let note = AnnotationNote(anchors:anchors,links:links); annotations.notes.append(note); id = note.id }
-        syncMarkAdapters(on:Set(anchors.map(\.page))); finishAction(); invalidateAnchors(anchors); return id
+        annotations.marks+=added;affected+=added.map(\.anchor)
+        annotations.minimumReader=max(4,annotations.minimumReader)
+        var id:UUID?
+        if withNote && !added.isEmpty {
+            let note=AnnotationNote(anchors:added.map(\.anchor),links:added.map{NoteLink(markID:$0.id,owned:true)})
+            annotations.notes.append(note);id=note.id
+        }
+        syncMarkAdapters(on:Set(selected.keys));finishAction();invalidateAnchors(affected);return id
     }
     @discardableResult func addRegion(page: PDFPage, rect: CGRect, to noteID: UUID? = nil) -> UUID? {
         guard rect.width > 1, rect.height > 1, beginInkAction(noteID == nil ? "添加区域批注" : "重新关联原文") else { return nil }
@@ -1042,6 +1349,7 @@ private func actionDescription(_ action: PDFAction?, destination: PDFDestination
 /// image even when the page count and text layer happen to remain unchanged.
 private struct PDFContentIntegrity: Equatable {
     let pages: [String]
+    init(pageCount: Int) { pages = Array(repeating:"unverified",count:pageCount) }
 
     init(_ data: Data) throws {
         guard let provider = CGDataProvider(data: data as CFData), let document = CGPDFDocument(provider) else { throw DocumentSessionError.invalidPDF }

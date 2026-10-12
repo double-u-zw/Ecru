@@ -4,15 +4,17 @@
 
 轻量、原生的 macOS PDF 阅读与手写批注工具。打开文档，在原文上直接书写，把想法留在阅读现场。
 
-**公开 Beta：0.5.0-beta.2（15）** · macOS 13+ · Apache-2.0
+**Beta：0.5.0-beta.3（19）** · macOS 13+ · Apache-2.0
 
-[Apple Silicon DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.2/Ecru-0.5.0-beta.2-arm64.dmg) · [Intel DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.2/Ecru-0.5.0-beta.2-x86_64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.2) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
+[Apple Silicon DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.3/Ecru-0.5.0-beta.3-arm64.dmg) · [Intel DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.3/Ecru-0.5.0-beta.3-x86_64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.3) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 
 ![Ecru 实际应用窗口：PDF 阅读与手写批注](assets/reading-candidate.png)
 
 ## 主要功能
 
-- Google Ink 手写引擎：直接写在 PDF 页面上，支持颜色和笔宽调整。
+- Google Ink 与真实压感手写、连续笔宽、停笔图形规整与恢复手绘。
+- 已有图形的独立边框、填充颜色及透明度编辑，支持多选。
+- 截图 / 图片粘贴与拖入，移动、缩放、非破坏裁剪、旋转、锁定和与笔迹组合；保存重开可继续编辑。
 - 六种工具：选择、笔、文字高亮、自由荧光笔、橡皮和圈选移动。
 - 文本搜索、目录、缩略图、页面导航和多窗口阅读。
 - 与原文关联的文字批注，支持离线 Markdown 与数学公式预览。
@@ -23,23 +25,29 @@
 
 ![Ecru 实际应用窗口：文字批注](assets/notes-candidate.png)
 
-截图来自 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
+截图来自历史 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
+
+## 图片与 PDF 兼容性
+
+选择图形后点“填充”编辑已有对象；笔色变化不会改变旧图形。PDF 获得焦点时 ⌘V 插入截图，文本输入框内正常粘贴文本。图片调整完成后恢复原工具，可继续在图片上书写；橡皮只擦除笔迹。用选择 / 圈选工具编辑图片，详情见 [可编辑对象](docs/EditableObjects.md)。
+
+密码解锁和签名 PDF 只读；普通表单 / 附件保留结构保存；XFA、活动内容、Portfolio 使用受保护的静态阅读。详情见 [PDF 兼容性](docs/PDFCompatibility.md)。历史下载包、Tag 和 DMG 保持不变。
 
 ## 系统要求
 
 | 项目 | 要求 |
 | --- | --- |
-| beta.2 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
+| beta.3 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
-| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；云端 macOS 14 arm64 / macOS 15 Intel |
+| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；本次尚无云端原生 Intel CI |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
-beta.2 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
+beta.3 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
 
 ## 下载与安装
 
-1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和 beta.2 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
+1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和 beta.3 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
 2. 打开 DMG，将 **Ecru.app** 拖入 **Applications（应用程序）**，然后推出磁盘映像。
 3. 从“应用程序”启动 Ecru。
 4. 本 Beta 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
@@ -70,7 +78,9 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 ## 已知限制
 
-- 目前主要针对普通 PDF；加密 PDF、数字签名、表单、嵌入附件以及部分交互结构会被拒绝打开，以避免不完整地改写文件。
+- 加密 / 签名 PDF 不开放写回；复杂结构按能力分级保护，普通表单 / 附件保存会校验原结构。
+- 图片采用矩形裁剪、90° 旋转、单页组合；一次文件插入一张。HDR 转为 SDR sRGB；单图最多 4000 万像素 / 24 MiB PNG，全批注数据 64 MiB。
+- 新图片、填充模式和组合数据需要 Beta 3 继续编辑；旧版本可能进入保护状态。
 - 没有 OCR。扫描页可以手写，文字选择与搜索需要 PDF 自带文本层。
 - 其他 PDF 编辑器修改 Ecru 的私有批注数据后，部分内容可能仅能查看或进入保护状态；建议保留 Ecru 保存的原始版本。
 - 尚无自动更新。新版本请从本仓库 Releases 手动安装。
@@ -89,7 +99,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 ---
 
-**Ecru** is a native PDF reader and handwriting annotation app for macOS. This public Beta supports **Apple Silicon and Intel on macOS 13+**, with separate arm64 and x86_64 DMGs, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). OCR, automatic updates and encrypted/signed/form PDFs are not supported in this release. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
+**Ecru** is a native PDF reader and handwriting annotation app for macOS. This public Beta supports **Apple Silicon and Intel on macOS 13+**, with separate arm64 and x86_64 DMGs, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). OCR and automatic updates are unavailable; encrypted/signed PDFs remain read-only. Ordinary forms/attachments use structure-preserving saves. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
 
 ## 开发与开源许可
 

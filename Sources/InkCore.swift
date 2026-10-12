@@ -38,6 +38,156 @@ enum InkAppearance:String,Codable {case flowV1 = "flow-disc-v1",perfectFreehandV
 
 struct InkOutlineUpdate {var removing=0;var points:[InkPoint]=[];var factors:[Double]=[];var removingOutlines=1;var outlines:[[InkPoint]]=[]}
 
+/// Shape metadata travels with ink; its PDF appearance is readable by other viewers.
+struct InkShape: Codable, Equatable {
+    enum Kind: String, Codable { case line, arrow, circle, ellipse, square, rectangle, triangle, diamond }
+    var kind: Kind
+    var controls: [InkPoint]
+    enum FillMode: String, Codable { case none, border, custom }
+    var fill: [Double]? = nil
+    // Legacy fills stay custom: never infer intent from matching RGB.
+    var fillMode: FillMode? = nil
+    var effectiveFillMode: FillMode { fillMode ?? (fill == nil ? .none : .custom) }
+    var originalPoints: [InkPoint]
+    var originalOutlines: [[InkPoint]]
+    var closed: Bool { kind != .line && kind != .arrow }
+    var valid: Bool {
+        controls.count >= 2 && controls.count <= 8 && controls.allSatisfy { $0.x.isFinite && $0.y.isFinite && abs($0.x)<1e7 && abs($0.y)<1e7 } &&
+        (fill == nil || (closed && fill!.count == 4 && fill!.allSatisfy { $0.isFinite && (0...1).contains($0) })) &&
+        !originalPoints.isEmpty && originalPoints.count <= 100_000 && originalPoints.allSatisfy { $0.x.isFinite && $0.y.isFinite && abs($0.x)<=1e7 && abs($0.y)<=1e7 } &&
+        originalOutlines.count <= 10000 && originalOutlines.reduce(0) { $0+$1.count } <= 2_000_000 && originalOutlines.allSatisfy { $0.count >= 3 && $0.allSatisfy { $0.x.isFinite && $0.y.isFinite && abs($0.x)<=1e7 && abs($0.y)<=1e7 } } &&
+        ((kind == .circle || kind == .ellipse || kind == .line || kind == .arrow) ? controls.count == 2 : controls.count == (kind == .triangle ? 3 : 4))
+    }
+    var points: [InkPoint] {
+        if kind == .circle || kind == .ellipse {
+            let a=controls[0],b=controls[1],cx=(a.x+b.x)/2,cy=(a.y+b.y)/2
+            return (0...128).map { i in let t=Double(i)*2*Double.pi/128; return InkPoint(x:cx+abs(b.x-a.x)/2*cos(t),y:cy+abs(b.y-a.y)/2*sin(t)) }
+        }
+        if kind == .arrow {
+            let a=controls[0],b=controls[1],d=hypot(b.x-a.x,b.y-a.y),s=min(d*0.28,18),ux=(b.x-a.x)/max(d,0.001),uy=(b.y-a.y)/max(d,0.001)
+            return [a,b,InkPoint(x:b.x-s*ux+s*0.55*uy,y:b.y-s*uy-s*0.55*ux),b,InkPoint(x:b.x-s*ux-s*0.55*uy,y:b.y-s*uy+s*0.55*ux)]
+        }
+        return controls + (closed ? [controls[0]] : [])
+    }
+    func path() -> CGPath {
+        let p=CGMutablePath();let v=points;p.move(to:v[0].cgPoint)
+        for q in v.dropFirst() { p.addLine(to:q.cgPoint) }; if closed {p.closeSubpath()};return p
+    }
+    func resized(from origin: CGPoint, to point: CGPoint) -> InkShape {
+        var s=self; let dx=point.x-origin.x,dy=point.y-origin.y
+        let distances=controls.map { hypot($0.x-origin.x,$0.y-origin.y) }
+        let index=distances.enumerated().max { $0.element<$1.element }!.offset
+        let vx=controls[index].x-origin.x,vy=controls[index].y-origin.y,den=vx*vx+vy*vy
+        var real=(dx*vx+dy*vy)/max(den,0.01),imag=(dy*vx-dx*vy)/max(den,0.01)
+        let magnitude=hypot(real,imag);if magnitude<0.05 {if magnitude<1e-8 {real=0.05;imag=0} else{real *= 0.05/magnitude;imag *= 0.05/magnitude}}
+        if kind == .circle || kind == .ellipse {
+            let sx=max(0.1,abs(dx)/max(abs(vx),1)),sy=max(0.1,abs(dy)/max(abs(vy),1))
+            let ratio=kind == .circle ? max(sx,sy) : 0
+            s.controls=controls.map { InkPoint(x:origin.x+($0.x-origin.x)*(ratio>0 ? ratio:sx),y:origin.y+($0.y-origin.y)*(ratio>0 ? ratio:sy)) }
+        } else {
+            s.controls=controls.map { q in let x=q.x-origin.x,y=q.y-origin.y;return InkPoint(x:origin.x+x*real-y*imag,y:origin.y+x*imag+y*real) }
+        };return s
+    }
+}
+
+/// Conservative recognizer: hold is required, fit error and backtracking reject handwriting.
+enum ShapeRecognition {
+    static func recognize(_ stroke: InkStroke, scale: Double, trajectory:[InkPoint]? = nil) -> InkShape? {
+        let raw=trajectory ?? stroke.points; guard raw.count>=2 else{return nil}
+        let tolerance=2.5/max(scale,0.15)
+        var p=[raw[0]]
+        for q in raw.dropFirst() where hypot(q.x-p.last!.x,q.y-p.last!.y)>tolerance*0.3 {p.append(q)}
+        guard p.count>=2 else{return nil}
+        let bounds=InkOutline.bounds([p]),extent=max(bounds.width,bounds.height)
+        guard extent*scale>=28 else{return nil}
+        let length=zip(p,p.dropFirst()).reduce(0) { $0+hypot($1.1.x-$1.0.x,$1.1.y-$1.0.y) }
+        func distance(_ q:InkPoint,_ a:InkPoint,_ b:InkPoint)->Double {
+            let dx=b.x-a.x,dy=b.y-a.y,l=dx*dx+dy*dy,t=max(0,min(1,((q.x-a.x)*dx+(q.y-a.y)*dy)/max(l,1e-8)))
+            return hypot(q.x-a.x-dx*t,q.y-a.y-dy*t)
+        }
+        func result(_ kind:InkShape.Kind,_ controls:[InkPoint])->InkShape {InkShape(kind:kind,controls:controls,originalPoints:stroke.points,originalOutlines:stroke.outlines ?? [])}
+        let a=p[0],b=p.last!,chord=hypot(b.x-a.x,b.y-a.y)
+        if chord>extent*0.85 && length/chord<1.20 && p.map({distance($0,a,b)}).max()!<max(tolerance*1.5,extent*0.05) { return result(.line,[a,b]) }
+        func simplify(_ values:[InkPoint],_ epsilon:Double)->[InkPoint] {
+            guard values.count>2 else{return values};let a=values.first!,b=values.last!
+            let far=values.indices.dropFirst().dropLast().max {distance(values[$0],a,b)<distance(values[$1],a,b)}!
+            if distance(values[far],a,b)<=epsilon {return [a,b]}
+            return simplify(Array(values[...far]),epsilon).dropLast()+simplify(Array(values[far...]),epsilon)
+        }
+        if chord>extent*0.5 {
+            let v=simplify(p,max(tolerance,extent*0.035))
+            if v.count == 5 {
+                let tip=v[1],stem=hypot(tip.x-a.x,tip.y-a.y)
+                let h1=hypot(v[2].x-tip.x,v[2].y-tip.y),h2=hypot(v[4].x-tip.x,v[4].y-tip.y)
+                let ux=(tip.x-a.x)/max(stem,1),uy=(tip.y-a.y)/max(stem,1)
+                let c1=(v[2].x-tip.x)*uy-(v[2].y-tip.y)*ux,c2=(v[4].x-tip.x)*uy-(v[4].y-tip.y)*ux
+                if stem>extent*0.7 && distance(v[3],tip,tip)<max(tolerance,stem*0.06) && (0.12...0.5).contains(h1/stem) && (0.12...0.5).contains(h2/stem) && c1*c2<0 && (v[2].x-tip.x)*ux+(v[2].y-tip.y)*uy < -h1*0.5 && (v[4].x-tip.x)*ux+(v[4].y-tip.y)*uy < -h2*0.5 {return result(.arrow,[a,tip])}
+            }
+        }
+        guard chord<max(tolerance*2,extent*0.18),bounds.width*scale>20,bounds.height*scale>20 else{return nil}
+        guard p.count>=4 else{return nil}
+        let step=max(0.75/max(scale,0.15),length/192)
+        var sampled=[p[0]],carry=0.0
+        for (a,b) in zip(p,p.dropFirst()) {
+            let d=hypot(b.x-a.x,b.y-a.y);guard d>0 else{continue}
+            var along=step-carry
+            while along<=d {let t=along/d;sampled.append(InkPoint(x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t));along+=step}
+            carry=d-(along-step)
+        }
+        sampled.append(p.last!);p=sampled
+        // A closed path must travel around once, with no interior excursions.
+        let cx=bounds.midX,cy=bounds.midY,rx=bounds.width/2,ry=bounds.height/2
+        var winding=0.0,last=atan2((p[0].y-cy)/ry,(p[0].x-cx)/rx),reverse=0.0
+        for q in p.dropFirst() {let angle=atan2((q.y-cy)/ry,(q.x-cx)/rx);var d=angle-last;while d>Double.pi{d-=2*Double.pi};while d < -Double.pi{d+=2*Double.pi};winding+=d;reverse+=abs(d);last=angle}
+        guard abs(winding)>5.4,reverse<abs(winding)*1.3 else{return nil}
+        let radial=p.map {abs(hypot(($0.x-cx)/rx,($0.y-cy)/ry)-1)}
+        if radial.reduce(0,+)/Double(p.count)<0.10 && radial.max()!<0.28 && length<2*Double.pi*max(rx,ry)*1.13 {
+            let circle=abs(rx-ry)/max(rx,ry)<0.12,r=(rx+ry)/2
+            return result(circle ? .circle:.ellipse,[InkPoint(x:cx-(circle ? r:rx),y:cy-(circle ? r:ry)),InkPoint(x:cx+(circle ? r:rx),y:cy+(circle ? r:ry))])
+        }
+        // Rotate start to a true corner before polygon simplification.
+        var best:[InkPoint]=[],bestScore=Double.infinity
+        for fraction in [0.06,0.09,0.12] {
+            for i in stride(from:0,to:p.count-1,by:max(1,(p.count-1)/24)) {
+                let cycle=Array(p[i..<p.count-1])+Array(p[0...i]);let v=Array(simplify(cycle,max(tolerance,extent*fraction)).dropLast())
+                guard (3...4).contains(v.count) else{continue}
+                let e=v.indices.map{j in InkPoint(x:v[(j+1)%v.count].x-v[j].x,y:v[(j+1)%v.count].y-v[j].y)},sizes=e.map{hypot($0.x,$0.y)}
+                guard sizes.min()!>extent*0.20 else{continue}
+                if v.count==4 {
+                    let dots=e.indices.map{j in abs(e[j].x*e[(j+1)%4].x+e[j].y*e[(j+1)%4].y)/(sizes[j]*sizes[(j+1)%4])}
+                    guard dots.max()!<0.35 || sizes.max()!/sizes.min()!<1.3 else{continue}
+                }
+                let errors=p.map {q in v.indices.map{distance(q,v[$0],v[($0+1)%v.count])}.min()!}
+                guard errors.max()!<max(tolerance*1.5,extent*0.11),errors.reduce(0,+)/Double(p.count)<max(tolerance,extent*0.045) else{continue}
+                let score=errors.reduce(0,+)/Double(p.count)+Double(v.count)*extent*0.002
+                if score<bestScore {best=v;bestScore=score}
+            }
+        }
+        guard (3...4).contains(best.count) else{return nil}
+        let errors=p.map {q in best.indices.map {distance(q,best[$0],best[($0+1)%best.count])}.min()!}
+        guard errors.max()!<max(tolerance*1.5,extent*0.11),errors.reduce(0,+)/Double(p.count)<max(tolerance,extent*0.045) else{return nil}
+        let edges=best.indices.map {i in InkPoint(x:best[(i+1)%best.count].x-best[i].x,y:best[(i+1)%best.count].y-best[i].y)}
+        let sizes=edges.map{hypot($0.x,$0.y)};guard sizes.min()!>extent*0.20 else{return nil}
+        if best.count==3 {return result(.triangle,best)}
+        let dots=edges.indices.map {i in let e=edges[i],f=edges[(i+1)%4];return abs(e.x*f.x+e.y*f.y)/(sizes[i]*sizes[(i+1)%4])}
+        let equal=sizes.max()!/sizes.min()!<1.3
+        if dots.max()!<0.35 {
+            // Fit exact perpendicular edges, keeping the user's rotation.
+            let origin=best[0],e=edges[0],l=sizes[0],ux=e.x/l,uy=e.y/l,sign=(e.x*edges[1].y-e.y*edges[1].x)>0 ? 1.0:-1.0
+            let w=equal ? sizes.reduce(0,+)/4:(sizes[0]+sizes[2])/2,h=equal ? w:(sizes[1]+sizes[3])/2
+            let v=InkPoint(x:-uy*h*sign,y:ux*h*sign),u=InkPoint(x:ux*w,y:uy*w)
+            let controls=[origin,InkPoint(x:origin.x+u.x,y:origin.y+u.y),InkPoint(x:origin.x+u.x+v.x,y:origin.y+u.y+v.y),InkPoint(x:origin.x+v.x,y:origin.y+v.y)]
+            let diagonal=abs(ux)>0.25 && abs(uy)>0.25
+            return result(equal ? (diagonal ? .diamond:.square):.rectangle,controls)
+        }
+        if equal {
+            let center=InkPoint(x:best.map(\.x).reduce(0,+)/4,y:best.map(\.y).reduce(0,+)/4)
+            let u=InkPoint(x:(best[0].x-best[2].x)/2,y:(best[0].y-best[2].y)/2),v=InkPoint(x:(best[1].x-best[3].x)/2,y:(best[1].y-best[3].y)/2)
+            return result(.diamond,[InkPoint(x:center.x+u.x,y:center.y+u.y),InkPoint(x:center.x+v.x,y:center.y+v.y),InkPoint(x:center.x-u.x,y:center.y-u.y),InkPoint(x:center.x-v.x,y:center.y-v.y)])
+        };return nil
+    }
+}
+
 struct InkStroke: Codable, Equatable {
     var id: UUID = UUID()
     var points: [InkPoint]
@@ -52,7 +202,8 @@ struct InkStroke: Codable, Equatable {
     // Baked closed outline blocks are authoritative for the new pen. No renderer
     // or eraser regenerates caps/pressure from the remaining centerline.
     var outlines:[[InkPoint]]? = nil
-    var requiredReader:Int {appearance == .perfectFreehandV1 ? 3 : (appearance == nil ? 1 : 2)}
+    var shape: InkShape? = nil
+    var requiredReader:Int {shape?.fillMode != nil ? 5 : shape != nil ? 4 : appearance == .perfectFreehandV1 ? 3 : (appearance == nil ? 1 : 2)}
 
     func radius(at index: Int) -> Double { width * (widthFactors?[index] ?? 1) / 2 }
     var maximumWidth: Double { width * (widthFactors?.max() ?? 1) }
@@ -76,10 +227,15 @@ struct InkStroke: Codable, Equatable {
         var result = self
         result.points = points.map { InkPoint(x: $0.x + dx, y: $0.y + dy) }
         result.outlines=outlines?.map{$0.map{InkPoint(x:$0.x+dx,y:$0.y+dy)}}
+        if var shape=result.shape {
+            func move(_ p:InkPoint)->InkPoint {InkPoint(x:p.x+dx,y:p.y+dy)}
+            shape.controls=shape.controls.map(move);shape.originalPoints=shape.originalPoints.map(move);shape.originalOutlines=shape.originalOutlines.map{$0.map(move)};result.shape=shape
+        }
         return result
     }
 
     var isValid: Bool {
+        (shape == nil || (shape!.valid && appearance == nil && outlines == nil && widthFactors == nil && points == shape!.points)) &&
         (appearance == .perfectFreehandV1 ? outlines != nil && !outlines!.isEmpty && outlines!.count<=10000 && outlines!.allSatisfy{$0.count>=3} && outlines!.reduce(0,{$0+$1.count})<=2_000_000 && outlines!.flatMap{$0}.allSatisfy{$0.x.isFinite && $0.y.isFinite && abs($0.x)<=10_000_000 && abs($0.y)<=10_000_000} : outlines == nil) &&
         (appearance == nil || kind == .pen) &&
         (widthFactors == nil || (kind == .pen && widthFactors!.count == points.count &&
@@ -97,6 +253,16 @@ enum InkGeometry {
     /// New fragments receive their own identity; a missed stroke keeps its identity.
     static func erase(_ stroke: InkStroke, center: CGPoint, radius: CGFloat) -> [InkStroke] {
         guard stroke.isValid, radius.isFinite, radius >= 0, center.x.isFinite, center.y.isFinite else { return [stroke] }
+        if let shape=stroke.shape {
+            let path=shape.path(),border=path.copy(strokingWithWidth:stroke.width,lineCap:.round,lineJoin:.round,miterLimit:10)
+            func fragments(_ path:CGPath,_ rgba:[Double])->[InkStroke] {
+                var baked=stroke;baked.shape=nil;baked.appearance = .perfectFreehandV1;baked.outlines=InkOutline.contours(path.normalized());baked.rgba=rgba
+                return InkOutline.erase(baked,center:center,radius:radius)
+            }
+            let mask=CGPath(ellipseIn:CGRect(x:center.x-radius,y:center.y-radius,width:radius*2,height:radius*2),transform:nil)
+            guard !border.intersection(mask).isEmpty || (shape.fill != nil && !path.intersection(mask).isEmpty) else{return [stroke]}
+            return (shape.fill.map{fragments(path,$0)} ?? []) + fragments(border,stroke.rgba)
+        }
         if stroke.outlines != nil {return InkOutline.erase(stroke,center:center,radius:radius)}
         let c = InkPoint(center)
         if stroke.points.count == 1 {
@@ -312,7 +478,7 @@ enum InkAnnotationCodec {
         precondition(stroke.isValid, "Invalid ink geometry")
         let bounds = stroke.bounds
         let annotation: PDFAnnotation
-        if stroke.widthFactors != nil || stroke.outlines != nil {
+        if stroke.shape != nil || stroke.widthFactors != nil || stroke.outlines != nil {
             annotation = PressureInkAnnotation(stroke: stroke)
         } else {
             annotation = PDFAnnotation(bounds: bounds, forType: .ink, withProperties: nil)
@@ -341,7 +507,7 @@ enum InkAnnotationCodec {
         annotation.setValue("LeafInk-\(stroke.id.uuidString)", forAnnotationKey: .name)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        if let data = try? encoder.encode(Envelope(schema: stroke.outlines != nil ? 4 : (stroke.appearance != nil ? 3 : (stroke.widthFactors == nil ? 1 : 2)), stroke: stroke)) {
+        if let data = try? encoder.encode(Envelope(schema: stroke.shape != nil ? 5 : stroke.outlines != nil ? 4 : (stroke.appearance != nil ? 3 : (stroke.widthFactors == nil ? 1 : 2)), stroke: stroke)) {
             annotation.setValue(data.base64EncodedString(), forAnnotationKey: metadataKey)
         }
         return annotation
@@ -353,8 +519,8 @@ enum InkAnnotationCodec {
               encoded.count <= 12_000_000,
               let data = Data(base64Encoded: encoded),
               let envelope = try? JSONDecoder().decode(Envelope.self, from: data),
-              (1...4).contains(envelope.schema), envelope.stroke.isValid,
-              (envelope.schema==4 ? envelope.stroke.appearance == .perfectFreehandV1 : (envelope.schema==3 ? envelope.stroke.appearance == .flowV1 : envelope.stroke.appearance == nil)),
+              (1...5).contains(envelope.schema), envelope.stroke.isValid,
+              (envelope.schema==5 ? envelope.stroke.shape != nil : (envelope.schema==4 ? envelope.stroke.appearance == .perfectFreehandV1 : (envelope.schema==3 ? envelope.stroke.appearance == .flowV1 : envelope.stroke.appearance == nil))),
               (envelope.schema != 1 || envelope.stroke.widthFactors == nil) else { return nil }
         // If another reader moved/resized the annotation without updating our
         // geometry, preserve it as foreign rather than editing the wrong place.
@@ -401,7 +567,7 @@ private final class PressureInkAnnotation: PDFAnnotation {
 enum InkRenderer {
     static func draw(_ stroke: InkStroke, scale: CGFloat, convert: (CGPoint) -> CGPoint) {
         guard let first = stroke.points.first else { return }
-        if stroke.widthFactors != nil || stroke.outlines != nil, let context = NSGraphicsContext.current?.cgContext {
+        if stroke.shape != nil || stroke.widthFactors != nil || stroke.outlines != nil, let context = NSGraphicsContext.current?.cgContext {
             drawPressure(stroke, in: context, scale: scale, convert: convert)
             return
         }
@@ -419,6 +585,12 @@ enum InkRenderer {
     // changes cannot open cracks at turns; opacity is applied to the whole pen.
     static func drawPressure(_ stroke: InkStroke, in context: CGContext, scale: CGFloat,
                              convert: (CGPoint) -> CGPoint) {
+        if let shape=stroke.shape {
+            context.saveGState();context.setShouldAntialias(true)
+            let path=CGMutablePath();let points=shape.points;path.move(to:convert(points[0].cgPoint));for p in points.dropFirst(){path.addLine(to:convert(p.cgPoint))};if shape.closed{path.closeSubpath()}
+            if let fill=shape.fill {context.setFillColor(NSColor(srgbRed:fill[0],green:fill[1],blue:fill[2],alpha:fill[3]).cgColor);context.addPath(path);context.fillPath()}
+            context.setStrokeColor(NSColor(srgbRed:stroke.rgba[0],green:stroke.rgba[1],blue:stroke.rgba[2],alpha:stroke.rgba[3]).cgColor);context.setLineWidth(stroke.width*scale);context.setLineCap(.round);context.setLineJoin(.round);context.addPath(path);context.strokePath();context.restoreGState();return
+        }
         if let outlines=stroke.outlines {
             context.saveGState();context.setShouldAntialias(true)
             context.setFillColor(NSColor(srgbRed:stroke.rgba[0],green:stroke.rgba[1],blue:stroke.rgba[2],alpha:stroke.rgba[3]).cgColor)
@@ -855,8 +1027,10 @@ struct InkInputSample: Codable {
     var forwardedGesture: UInt32? = nil
     var forwardedSequence: UInt32? = nil
     var submitted: Double? = nil
-    // Exact force consumed by the engine; older traces retain their AppKit field.
+    // Exact device force; pressure-disabled brush mode may choose not to use it.
     var nativePressure: Double? = nil
+    var nativeAltitude: Double? = nil
+    var eraserRadius: Double? = nil
 }
 struct InkDrawCallback: Codable {
     var throughSample: Int
@@ -874,6 +1048,7 @@ struct InkInputTrace: Codable {
     var finished: Double?
     var pageIndex: Int?
     var mouseCoalescingEnabled: Bool?
+    var inputTool: String? = nil
     var penResponse: String?
     var captureVersion: Int? = nil
     var drawCallbacks: [InkDrawCallback]? = nil
