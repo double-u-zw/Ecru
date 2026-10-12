@@ -1,4 +1,4 @@
-# Beta 3 validation scope
+# Beta 3 validation results
 
 Candidate identity: **0.5.0-beta.3 (19)**. The application functionality is the accepted
 Ecru Dev Build 18 baseline. Build 19 freezes release identity and distribution materials;
@@ -33,7 +33,20 @@ receipt, strict ad-hoc signature and complete third-party licenses. Its final ev
 is `verification.json` alongside the release packages. Verification never installs
 an App, registers verification copies or changes user documents/recovery records.
 
-No native cloud CI results are claimed for Beta 3 at this preparation stage. Historical
-Beta 2 CI results belong to that version. Physical Intel input, macOS 13 hardware,
-HDR-source behavior, mixed-DPI displays and long-duration writing remain separate checks.
+## Native CI and published release
+
+The [Beta 3 native CI run](https://github.com/double-u-zw/Ecru/actions/runs/38276748166)
+passed on macOS 14 Apple Silicon and macOS 15 Intel, with builds, complete public core
+regressions, 78 image/fill checks and two independent lossless PDF appearances per
+architecture, and DMG packaging. Both native artifacts passed checksum verification.
+
+The [published Beta 3 release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.3)
+pins source `9231496b9dadc5ca5e5341fdcb3795246ce9bf08`; both distributed Apps embed
+that source revision. All five uploaded release assets were downloaded and compared
+byte-for-byte with the verified local files before publication. The old releases,
+asset identities and digests, and annotated/peeled historical tag refs were preserved.
+
+Subsequent documentation updates do not alter the frozen release source or assets.
+Physical Intel input, macOS 13 hardware, HDR-source behavior, mixed-DPI displays and
+long-duration writing remain separate checks.
 Automated rendering benchmarks do not measure physical pen latency.

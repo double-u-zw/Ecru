@@ -27,6 +27,10 @@
 
 截图来自历史 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
 
+## 本次发布验证
+
+[Beta 3 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38276748166) 已通过 Apple Silicon 和 Intel 的构建、核心回归、图片 / 填充 78 项及安装包生成。发布标签冻结源码 `9231496b9dadc5ca5e5341fdcb3795246ce9bf08`，两份安装包标记同一源码。已发布包、Beta 2 和历史标签保持不变；真实设备手感仍需单独验证。
+
 ## 图片与 PDF 兼容性
 
 选择图形后点“填充”编辑已有对象；笔色变化不会改变旧图形。PDF 获得焦点时 ⌘V 插入截图，文本输入框内正常粘贴文本。图片调整完成后恢复原工具，可继续在图片上书写；橡皮只擦除笔迹。用选择 / 圈选工具编辑图片，详情见 [可编辑对象](docs/EditableObjects.md)。
@@ -40,7 +44,7 @@
 | beta.3 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
-| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；本次尚无云端原生 Intel CI |
+| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；本次 CI macOS 14 arm64 / macOS 15 Intel |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
 beta.3 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
