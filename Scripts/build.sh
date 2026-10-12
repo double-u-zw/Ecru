@@ -5,7 +5,7 @@ task_variant="${ECRU_VARIANT:-development}"
 [[ "$task_variant" == release || "$task_variant" == development ]] || { print -u2 "ECRU_VARIANT must be release or development"; exit 1; }
 task_name="Ecru"
 [[ "$task_variant" != development ]] || task_name="Ecru Dev"
-task_destination="${ECRU_APP_OUTPUT:-$PWD/output/$task_name.app}"
+task_destination="${ECRU_APP_OUTPUT:-$PWD/.build/apps/$task_name.app}"
 # Build candidates separately; updating an installed daily App is a reviewed step.
 if [[ "${task_destination:A}" == /Applications/Ecru.app || "${task_destination:A}" == "$HOME/Applications/Ecru.app" ]]; then
  print -u2 "Build into output first. Update the installed Ecru separately after review."; exit 1
@@ -82,7 +82,4 @@ if [[ -d "$task_destination" ]]; then mv "$task_destination" "${task_bundle:h}/p
 mv "$task_bundle" "$task_destination"
 rm -rf "${task_bundle:h}"
 touch "$task_destination"
-if [[ -z "${ECRU_APP_OUTPUT:-}" ]]; then
- /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$task_destination"
-fi
 print "Built ($ecru_arch): $task_destination"

@@ -8,7 +8,7 @@ mkdir -p .build/test-binaries .build/module-cache output/pdf
 task_test_variant="${ECRU_VARIANT:-development}"
 task_test_name="Ecru"
 [[ "$task_test_variant" != development ]] || task_test_name="Ecru Dev"
-export ECRU_TEST_APP_PATH="$PWD/output/$task_test_name.app"
+export ECRU_TEST_APP_PATH="$PWD/.build/apps/$task_test_name.app"
 [[ -x "$ECRU_TEST_APP_PATH/Contents/MacOS/Ecru" ]] || ECRU_ARCH="$ecru_arch" zsh Scripts/build.sh
 flags=(-swift-version 5 -target "$ecru_arch-apple-macosx13.0" -module-cache-path "$PWD/.build/module-cache")
 if [[ "${1:-}" == "--ui" ]]; then

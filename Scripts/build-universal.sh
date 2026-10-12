@@ -5,7 +5,7 @@ cd "${0:A:h:h}"
 task_variant="${ECRU_VARIANT:-development}"
 task_name="Ecru"
 [[ "$task_variant" != development ]] || task_name="Ecru Dev"
-mkdir -p .build output
+mkdir -p .build/apps output
 task_stage="$(mktemp -d "$PWD/.build/universal.XXXXXX")"
 trap 'rm -rf "$task_stage"' EXIT
 task_host="$(uname -m)"
@@ -29,7 +29,6 @@ lipo "$task_stage/Ecru.app/Contents/MacOS/Ecru" -verify_arch arm64
 lipo "$task_stage/Ecru.app/Contents/MacOS/Ecru" -verify_arch x86_64
 codesign --force --sign - "$task_stage/Ecru.app"
 codesign --verify --strict "$task_stage/Ecru.app"
-if [[ -d "output/$task_name.app" ]]; then mv "output/$task_name.app" "$task_stage/previous.app"; fi
-mv "$task_stage/Ecru.app" "output/$task_name.app"
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$PWD/output/$task_name.app"
-print "Built Universal 2 (macOS 13+): $PWD/output/$task_name.app"
+if [[ -d ".build/apps/$task_name.app" ]]; then mv ".build/apps/$task_name.app" "$task_stage/previous.app"; fi
+mv "$task_stage/Ecru.app" ".build/apps/$task_name.app"
+print "Built Universal 2 (macOS 13+): $PWD/.build/apps/$task_name.app"

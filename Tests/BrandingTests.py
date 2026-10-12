@@ -4,7 +4,7 @@ import plistlib, hashlib, subprocess, os
 root=Path(__file__).resolve().parents[1]
 variant=os.environ.get('ECRU_VARIANT','development')
 name='Ecru Dev' if variant=='development' else 'Ecru'
-app=Path(os.environ.get('ECRU_TEST_APP_PATH',root/'output'/f'{name}.app'))
+app=Path(os.environ.get('ECRU_TEST_APP_PATH',root/'.build/apps'/f'{name}.app'))
 info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
 assert info['CFBundleExecutable']=='Ecru'
 assert info['CFBundleIdentifier']==('local.ecru.reader.development' if variant=='development' else 'local.leafink.reader.development')

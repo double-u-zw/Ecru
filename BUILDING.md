@@ -17,11 +17,12 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install -r Tests/requirements.txt
 zsh Scripts/build.sh
-open "output/Ecru Dev.app"
+open ".build/apps/Ecru Dev.app"
 ```
 
 The default builds **Ecru Dev** for the **host architecture**, into
-`output/Ecru Dev.app`. It does not install or replace the daily Ecru application. Set `ECRU_ARCH=arm64` or
+`.build/apps/Ecru Dev.app`. App bundles stay in the hidden build workspace and are not automatically registered
+as installed applications. It does not install or replace the daily Ecru application. Set `ECRU_ARCH=arm64` or
 `ECRU_ARCH=x86_64` to choose explicitly. Each native dependency is built separately
 into `.build/native-ink/<architecture>/`. Swift, C++ and dependencies target macOS
 13.0. Running x86_64 executables/tests on Apple Silicon requires Rosetta 2.
@@ -87,7 +88,7 @@ Existing beta.1 assets and its tag must never be replaced.
 
 ```sh
 zsh Scripts/build.sh
-open "output/Ecru Dev.app"
+open ".build/apps/Ecru Dev.app"
 ```
 
 This creates **Ecru Dev**, with bundle ID `local.ecru.reader.development`,

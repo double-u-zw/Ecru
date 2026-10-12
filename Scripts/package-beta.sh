@@ -2,7 +2,7 @@
 # Package the already-built, verified release App. Includes complete license notices.
 set -euo pipefail
 cd "${0:A:h:h}"
-task_app="${ECRU_APP_PATH:-$PWD/output/Ecru.app}"
+task_app="${ECRU_APP_PATH:-$PWD/.build/apps/Ecru.app}"
 task_docs="${ECRU_RELEASE_DOCS:-$PWD}"
 if [[ -z "${ECRU_RELEASE_DOCS:-}" && -d "$PWD/OpenSource" ]]; then task_docs="$PWD/OpenSource"; fi
 task_version="$(/usr/libexec/PlistBuddy -c 'Print :EcruReleaseVersion' "$task_app/Contents/Info.plist")"
