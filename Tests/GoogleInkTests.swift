@@ -165,7 +165,10 @@ import PDFKit
         }
         check(ls.isValid && !long.capacityReached,"5000-event continuous stroke remains valid")
         costs.sort();tailCosts.sort()
-        let report:[String:Any]=["recipe":PenEngine.recipe,"strokes":count,"events":events,"p95ms":costs.isEmpty ? 0:costs[Int(Double(costs.count)*0.95)],"maxms":costs.last ?? 0,"longP95ms":tailCosts[Int(Double(tailCosts.count)*0.95)],"longVertices":ls.outlines!.flatMap{$0}.count]
+        let maximumCost: Double = costs.last ?? 0
+        let percentileCost: Double = costs.isEmpty ? 0 : costs[Int(Double(costs.count)*0.95)]
+        let report:[String:Any]=["recipe":PenEngine.recipe,"strokes":count,"events":events,"p95ms":percentileCost,"maxms":maximumCost,"longP95ms":tailCosts[Int(Double(tailCosts.count)*0.95)],"longVertices":ls.outlines!.flatMap{$0}.count]
+        check(JSONSerialization.isValidJSONObject(report), "synthetic and private performance reports contain concrete JSON values")
         print(report)
         try JSONSerialization.data(withJSONObject:report,options:[.prettyPrinted,.sortedKeys]).write(to:out.appendingPathComponent("results.json"))
         try JSONEncoder().encode(specimens).write(to:out.appendingPathComponent("specimens.json"))
