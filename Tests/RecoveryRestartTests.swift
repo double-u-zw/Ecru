@@ -114,6 +114,19 @@ import Darwin
         check(session.isModified && !session.canUndo && session.canRedo,"undo retention cannot mark truncated document clean")
         for _ in 0..<retained{session.redo()}
         check(session.inkStrokes(on:session.document.page(at:0)!).count==80 && session.isModified,"redo restores each retained action and dirty revision semantics")
+        let notesURL = history.appendingPathComponent("notes.pdf")
+        try FileManager.default.copyItem(at:history.appendingPathComponent("source.pdf"),to:notesURL)
+        let notes = try DocumentSession.open(url:notesURL)
+        notes.testSetHistoryBudget(96*1024)
+        for i in 0..<80 {
+            _ = notes.addRegion(page:notes.document.page(at:0)!,rect:CGRect(x:20,y:20+i,width:10,height:10))
+            notes.finishAction()
+        }
+        let noteActions = notes.undoActionCount
+        check(noteActions >= 32 && noteActions < 80, "empty anchored notes consume undo budget rather than growing unbounded")
+        let count = notes.annotations.marks.count
+        notes.undo(); check(notes.annotations.marks.count == count-1 && notes.isModified, "budgeted note undo remains one action and dirty")
+        notes.redo(); check(notes.annotations.marks.count == count && notes.isModified, "budgeted note redo restores its anchored region")
         let record=session.recoverableRecord!,shared=history.appendingPathComponent("data/Recovery/late-writer.json")
         let older=RecoveryRecord(version:record.version,sourcePath:record.sourcePath,originalFingerprint:record.originalFingerprint,pdfData:record.pdfData,revision:UUID(),updatedAt:record.updatedAt.addingTimeInterval(-10),ink:record.ink,annotations:record.annotations,markOrigins:record.markOrigins)
         let current=RecoveryStore(),late=RecoveryStore()
