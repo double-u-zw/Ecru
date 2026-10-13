@@ -13,6 +13,22 @@ import Darwin
         for _ in 0..<2 {context.beginPDFPage([kCGPDFContextMediaBox as String:NSValue(rect:CGRect(x:0,y:0,width:612,height:792))] as CFDictionary);context.endPDFPage()}
         context.closePDF();try (data as Data).write(to:url)
     }
+    // Write action dictionaries directly: older PDFKit cannot serialize a Swift
+    // dictionary installed under /A (it expects its private PDFAction object).
+    static func actionPDF(_ action:String,trigger:String="")->Data {
+        let objects=[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R] \(trigger) >>",
+            "<< /Type /Annot /Subtype /Link /Rect [10 10 30 30] /A << \(action) >> >>"
+        ]
+        var data=Data("%PDF-1.7\n".utf8),offsets=[0]
+        for (index,object) in objects.enumerated() {offsets.append(data.count);data.append(Data("\(index+1) 0 obj\n\(object)\nendobj\n".utf8))}
+        let xref=data.count
+        data.append(Data("xref\n0 5\n0000000000 65535 f \n".utf8))
+        for offset in offsets.dropFirst() {data.append(Data(String(format:"%010d 00000 n \n",offset).utf8))}
+        data.append(Data("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8));return data
+    }
     static func event(_ reader:ReaderWindow,_ type:NSEvent.EventType,_ p:CGPoint,page:PDFPage,pencil:Bool=false)->NSEvent {
         let p=reader.pdfView.convert(reader.pdfView.convert(p,from:page),to:nil)
         let e=NSEvent.mouseEvent(with:type,location:p,modifierFlags:[],timestamp:ProcessInfo.processInfo.systemUptime,windowNumber:reader.window!.windowNumber,context:nil,eventNumber:1,clickCount:1,pressure:1)!
@@ -127,16 +143,10 @@ import Darwin
         check(canvas.laser.page == nil && second.canvas.laser.page == nil,"disconnect releases both temporary layers")
     }
     static func protected(_ root:URL) throws {
-        let url=root.appendingPathComponent("protected.pdf");try fixture(url)
-        let doc=PDFDocument(url:url)!
-        let annotation=PDFAnnotation(bounds:CGRect(x:20,y:20,width:40,height:40),forType:.link,withProperties:nil)
-        annotation.setValue(["/S":"/JavaScript","/JS":"app.alert('synthetic')"],forAnnotationKey:PDFAnnotationKey(rawValue:"/A"))
-        doc.page(at:0)!.addAnnotation(annotation);check(doc.write(to:url),"protected fixture written")
-        let session=try DocumentSession.open(url:url)
-        // Also inspect the established active-content fixture from the compatibility suite.
-        if !session.annotationReadOnly {print("NOTE: PDFKit did not encode synthetic action; using compatibility fixture")}
-        let existing=URL(fileURLWithPath:".build/complex-pdf/fixtures/active.pdf")
-        let protectedSession=try FileManager.default.fileExists(atPath:existing.path) ? DocumentSession.open(url:existing):session
+        let url=root.appendingPathComponent("protected.pdf")
+        let input=actionPDF("/Type /Action /S /JavaScript /JS (app.alert\\('synthetic'\\))")
+        try input.write(to:url);check((try? Data(contentsOf:url)) == input,"protected fixture written")
+        let protectedSession=try DocumentSession.open(url:url)
         check(protectedSession.annotationReadOnly,"active-content fixture remains read-only")
         let reader=ReaderWindow(session:protectedSession,installInputMonitor:{_,_ in 1},removeInputMonitor:{_ in})
         reader.pdfView.autoScales=false;reader.pdfView.scaleFactor=1;reader.pdfView.layoutDocumentView();reader.selectTool(.laser)
@@ -165,18 +175,7 @@ import Darwin
     }
     static func navigation(_ root:URL) throws {
         func pdf(name:String,trigger:String="",next:String="")->Data {
-            let objects=[
-                "<< /Type /Catalog /Pages 2 0 R >>",
-                "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << >> /Annots [4 0 R] \(trigger) >>",
-                "<< /Type /Annot /Subtype /Link /Rect [10 10 30 30] /A << /Type /Action /S /Named /N \(name) \(next) >> >>"
-            ]
-            var data=Data("%PDF-1.7\n".utf8),offsets=[0]
-            for (index,object) in objects.enumerated() {offsets.append(data.count);data.append(Data("\(index+1) 0 obj\n\(object)\nendobj\n".utf8))}
-            let xref=data.count
-            data.append(Data("xref\n0 5\n0000000000 65535 f \n".utf8))
-            for offset in offsets.dropFirst() {data.append(Data(String(format:"%010d 00000 n \n",offset).utf8))}
-            data.append(Data("trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n\(xref)\n%%EOF\n".utf8));return data
+            actionPDF("/Type /Action /S /Named /N \(name) \(next)",trigger:trigger)
         }
         for (index,name) in ["/FirstPage","/LastPage","/NextPage","/PrevPage","/Find","/GoBack","/GoForward","/GoToPage"].enumerated() {
             let input=pdf(name:name),url=root.appendingPathComponent("navigation-\(index).pdf");try input.write(to:url)
