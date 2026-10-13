@@ -1,9 +1,18 @@
-Ecru application icon — maintainer-selected 2026-10-13
-The supplied blue book / cyan writing-ribbon PNG is preserved byte for byte as
-Ecru-Master.png (1254 x 1254).
-SHA-256: 82edb285187611fcc255bdb4a9b4d3cc0467bca055701706938fcbcab9fc2dfc
-The maintainer approved native rounded-corner clipping of the exterior white
-background. Scripts/make-icon.swift preserves the original center design and
-only clips, centers and resamples it. No generated/redrawn symbol pixels are used.
-Scripts/build-icons.sh packages 16/32/128/256/512 point icons at 1x/2x as ICNS;
+Ecru application icon — maintainer-requested refinement, 2026-10-13
+
+The maintainer requested slightly thicker lines without redesigning the existing
+blue book and cyan writing ribbon. The current 1254-square master was edited with
+the built-in imagegen tool. Prompt: increase book/ribbon stroke weight subtly,
+approximately 10%, preserving composition, proportions, gradients, tapered tips,
+white tile, lighting, shadows and margins; no new elements or text.
+The percentage describes the requested visual adjustment, not a pixel measurement.
+Current Ecru-Master.png SHA-256: 11c2063356cc45c93221972d94a1c68a02c6bc43bf3c27c61ce2b472682faef4
+
+Scripts/make-icon.swift only clips the exterior, centers the tile in an 81.25%
+Dock envelope and resamples the current master. Scripts/build-icons.sh packages
+16/32/128/256/512 point representations at 1x/2x as AppIcon.icns;
 AppIcon.png is the 1024-pixel rendition.
+
+The originally supplied master and its exact-pixel packaging remain in the
+historical beta.5 source tag. Published release artwork/assets are unchanged;
+this refinement belongs to the subsequent development candidate.

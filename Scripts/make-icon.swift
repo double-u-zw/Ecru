@@ -1,6 +1,6 @@
 import AppKit
 
-// Packaging only: preserve the user-supplied master pixels. Clip the exterior
+// Packaging only: preserve the current master pixels. Clip the exterior
 // white background with a native continuous-corner path; never redraw the mark.
 let source=URL(fileURLWithPath:CommandLine.arguments[1])
 let destination=URL(fileURLWithPath:CommandLine.arguments[2],isDirectory:true)
