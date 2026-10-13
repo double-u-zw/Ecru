@@ -5,6 +5,9 @@ import UniformTypeIdentifiers
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     static var shared: AppDelegate!
     var readers: [ReaderWindow] = []
+    private let documentOpener=DocumentOpenCoordinator()
+    private var openingURLs=Set<URL>()
+    func isDocumentOpening(_ url:URL)->Bool {openingURLs.contains(DocumentSession.canonicalURL(url))}
     private var openPanel: NSOpenPanel?
     private var openingAtStartup = false
     private var pendingInitialOpen: DispatchWorkItem?
@@ -32,9 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let files = args.filter { !$0.hasPrefix("-") && $0.lowercased().hasSuffix(".pdf") }
         files.forEach { open(URL(fileURLWithPath:$0)) }
         launchFinished=true
-        if readers.isEmpty && !receivedExternalOpen {
+        if readers.isEmpty && openingURLs.isEmpty && !receivedExternalOpen {
             let request=DispatchWorkItem { [weak self] in
-                guard let self,self.readers.isEmpty,!self.receivedExternalOpen else{return}
+                guard let self,self.readers.isEmpty,self.openingURLs.isEmpty,!self.receivedExternalOpen else{return}
                 self.presentOpenPanel(atStartup:true)
             }
             pendingInitialOpen=request;DispatchQueue.main.async(execute:request)
@@ -59,37 +62,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             saving.showNotice("此 PDF 正在作为保存目标写入；完成后再打开，以免产生两份冲突的编辑内容。")
             saving.window?.makeKeyAndOrderFront(nil); return
         }
-        do {
-            guard let session = try unlockSession(canonical) else { return }
-            let reader = ReaderWindow(session:session); readers.append(reader)
-            reader.didCreateAnnotationCopy = { [weak self] url in self?.open(url) }
-            reader.didClose = { [weak self, weak reader] in
-                self?.readers.removeAll { $0 === reader }
+        guard openingURLs.insert(canonical).inserted else{return}
+        pendingInitialOpen?.cancel();pendingInitialOpen=nil
+        requestSession(canonical)
+    }
+    private func requestSession(_ url:URL,password:String?=nil) {
+        documentOpener.open(url,password:password){[weak self] result in
+            guard let self,self.openingURLs.contains(url) else{return}
+            switch result {
+            case .success(let session):
+                self.openingURLs.remove(url)
+                let reader=ReaderWindow(session:session);self.readers.append(reader)
+                reader.didCreateAnnotationCopy={[weak self] url in self?.open(url)}
+                reader.didClose={[weak self,weak reader] in self?.readers.removeAll{$0===reader}}
+                reader.showWindow(nil);reader.window?.makeKeyAndOrderFront(nil)
+                NSDocumentController.shared.noteNewRecentDocumentURL(url);self.refreshRecent()
+            case .failure(let error):
+                if case DocumentSessionError.passwordRequired=error {self.requestPassword(url,failed:false)}
+                else if case DocumentSessionError.incorrectPassword=error {self.requestPassword(url,failed:true)}
+                else {
+                    self.openingURLs.remove(url)
+                    let alert=NSAlert();alert.messageText="无法安全打开此 PDF";alert.informativeText=error.localizedDescription;alert.runModal()
+                }
             }
-            reader.showWindow(nil); reader.window?.makeKeyAndOrderFront(nil)
-            NSDocumentController.shared.noteNewRecentDocumentURL(canonical); refreshRecent()
-        } catch {
-            let alert = NSAlert(); alert.messageText = "无法安全打开此 PDF"; alert.informativeText = error.localizedDescription; alert.runModal()
         }
     }
-    /// Secrets live only in the secure field and this synchronous unlock call.
-    private func unlockSession(_ url: URL) throws -> DocumentSession? {
-        do { return try DocumentSession.open(url:url) }
-        catch DocumentSessionError.passwordRequired { }
-        var failed = false
-        while true {
-            let alert = NSAlert()
-            alert.messageText = "打开密码保护的 PDF"
-            alert.informativeText = failed ? "密码不正确，或系统不支持此加密方式。请重试。" : "请输入“\(url.lastPathComponent)”的打开密码。密码不会保存。"
-            let field = NSSecureTextField(frame:NSRect(x:0,y:0,width:320,height:24))
-            field.placeholderString = "打开密码"; alert.accessoryView = field
-            alert.addButton(withTitle:"解锁"); alert.addButton(withTitle:"取消")
-            alert.window.initialFirstResponder = field
-            guard alert.runModal() == .alertFirstButtonReturn else { field.stringValue=""; return nil }
-            defer { field.stringValue = "" }
-            do { return try DocumentSession.open(url:url,password:field.stringValue) }
-            catch DocumentSessionError.incorrectPassword { field.stringValue=""; failed=true }
-        }
+    private func requestPassword(_ url:URL,failed:Bool) {
+        let alert=NSAlert();alert.messageText="打开密码保护的 PDF"
+        alert.informativeText=failed ? "密码不正确，或系统不支持此加密方式。请重试。":"请输入“\(url.lastPathComponent)”的打开密码。密码不会保存。"
+        let field=NSSecureTextField(frame:NSRect(x:0,y:0,width:320,height:24))
+        field.placeholderString="打开密码";alert.accessoryView=field
+        alert.addButton(withTitle:"解锁");alert.addButton(withTitle:"取消");alert.window.initialFirstResponder=field
+        defer{field.stringValue=""}
+        guard alert.runModal() == .alertFirstButtonReturn else{openingURLs.remove(url);return}
+        requestSession(url,password:field.stringValue)
     }
     @objc private func openDocument() {presentOpenPanel(atStartup:false)}
     private func presentOpenPanel(atStartup:Bool) {
@@ -107,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldOpenUntitledFile(_ sender:NSApplication)->Bool {false}
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication)->Bool {false}
     func applicationShouldHandleReopen(_ sender:NSApplication,hasVisibleWindows flag:Bool)->Bool {
-        if launchFinished && !flag && readers.isEmpty {presentOpenPanel(atStartup:false)}
+        if launchFinished && !flag && readers.isEmpty && openingURLs.isEmpty {presentOpenPanel(atStartup:false)}
         return true
     }
     private func buildMenus() {
@@ -239,6 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         readers.forEach { $0.windowDidResignKey(notification) }
     }
     func applicationWillTerminate(_ notification:Notification) {
+        documentOpener.cancelAll();openingURLs.removeAll()
         readers.forEach { $0.disconnectInputAndViews() }
     }
     func applicationShouldRestoreApplicationState(_ app:NSApplication,coder:NSCoder) -> Bool { false }

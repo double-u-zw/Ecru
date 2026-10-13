@@ -65,6 +65,11 @@ extension AnnotationStore {
     func expanded(_ ids:Set<UUID>)->Set<UUID> {
         ids.union(groups.filter{!ids.isDisjoint(with:$0.members)}.flatMap(\.members))
     }
+    var movableObjectIDs:Set<UUID> {Set(ink.flatMap{$0.map(\.id)}+images.map(\.id))}
+    func movableSelection(_ ids:Set<UUID>)->Set<UUID> {
+        let movable=movableObjectIDs
+        return expanded(ids.intersection(movable)).intersection(movable)
+    }
 }
 
 /// Full-resolution import, deterministic SDR conversion once. Display caches never

@@ -119,11 +119,12 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 ```sh
 git clone https://github.com/double-u-zw/Ecru.git
 cd Ecru
+zsh Scripts/setup-tests.sh
 zsh Scripts/build.sh
 open ".build/apps/Ecru Dev.app"
 ```
 
-需要 Xcode Command Line Tools、CMake 3.19+ 和 Python 3。默认构建本机架构的 Ecru Dev，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
+需要 Xcode Command Line Tools、CMake 3.19+、Python 3.12+ 和 Node.js。默认构建本机架构的 Ecru Dev，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
 
 - `Sources/`：AppKit 阅读窗口、PDF 编辑/恢复、Swift 笔迹适配与 C++ Google Ink 桥接。
 - `Resources/`：图标、本地化与离线 Markdown/数学预览。
@@ -132,3 +133,5 @@ open ".build/apps/Ecru Dev.app"
 - `docs/`：架构与存储兼容约定；`assets/` 和 `licenses/` 保留产品分发资料。
 
 Ecru 第一方源码、文档与项目美术采用 [Apache-2.0](LICENSE)，允许修改和分发衍生版本。第三方材料保留各自 Apache-2.0、MIT、IJG/BSD 或 SIL OFL 1.1 许可，见 [NOTICE](NOTICE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。提交规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+当前开发源码的恢复和搜索性能整治尚未作为新的公开 Release 发布。默认构建与验收使用 Ecru Dev；文字高亮和批注锚定区域不参与圈选移动。测试入口、隔离存储、诊断保留及真人验收边界统一见 [BUILDING.md](BUILDING.md)。

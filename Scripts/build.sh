@@ -6,14 +6,13 @@ task_variant="${ECRU_VARIANT:-development}"
 task_name="Ecru"
 [[ "$task_variant" != development ]] || task_name="Ecru Dev"
 task_destination="${ECRU_APP_OUTPUT:-$PWD/.build/apps/$task_name.app}"
-# Build candidates separately; updating an installed daily App is a reviewed step.
-if [[ "${task_destination:A}" == /Applications/Ecru.app || "${task_destination:A}" == "$HOME/Applications/Ecru.app" ]]; then
- print -u2 "Build into output first. Update the installed Ecru separately after review."; exit 1
-fi
+# Resolve symlinks before creating anything. Candidates always live under .build/apps.
+python3 Scripts/protect-build-output.py "$task_destination"
 source Scripts/native-ink-flags.sh
 mkdir -p .build/module-cache .build/apps output
 # Publish a complete bundle: no abandoned executables or icon resources survive.
 task_bundle="$(mktemp -d "$PWD/.build/apps/.app-bundle.XXXXXX")/Ecru.app"
+trap 'rm -rf "${task_bundle:h}"' EXIT
 mkdir -p "$task_bundle/Contents/MacOS"
 xcrun swiftc "${ecru_ink_flags[@]}" -swift-version 5 -target "$ecru_arch-apple-macosx13.0" -O -whole-module-optimization -module-cache-path "$PWD/.build/module-cache" Sources/*.swift -o "$task_bundle/Contents/MacOS/Ecru" -framework AppKit -framework PDFKit -framework UniformTypeIdentifiers -framework WebKit
 # Do not truncate an executable mapped by the reader that is protecting a draft.
@@ -23,6 +22,7 @@ cp Scripts/Info.plist "$task_bundle/Contents/Info.plist"
 task_build_revision="$(git rev-parse --short HEAD 2>/dev/null || print source-archive)"
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then task_build_revision+="-dirty"; fi
 /usr/libexec/PlistBuddy -c "Add :EcruBuildRevision string $task_build_revision" "$task_bundle/Contents/Info.plist"
+python3 Scripts/source-identity.py "$task_bundle/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :EcruPenRecipe string google-ink-daily-v5" "$task_bundle/Contents/Info.plist"
 mkdir -p "$task_bundle/Contents/Resources/Licenses"
 cp LICENSE "$task_bundle/Contents/Resources/Licenses/Ecru-Apache-2.0.txt"
@@ -78,8 +78,7 @@ fi
 codesign --force --sign - "$task_bundle"
 codesign --verify --strict "$task_bundle"
 mkdir -p "${task_destination:h}"
-if [[ -d "$task_destination" ]]; then mv "$task_destination" "${task_bundle:h}/previous.app"; fi
-mv "$task_bundle" "$task_destination"
-rm -rf "${task_bundle:h}"
+# Atomic exchange preserves the previous usable bundle even if publication fails.
+python3 Scripts/publish-app.py "$task_bundle" "$task_destination"
 touch "$task_destination"
 print "Built ($ecru_arch): $task_destination"

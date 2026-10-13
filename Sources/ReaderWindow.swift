@@ -80,7 +80,10 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     private let closeSearch = NSButton()
     private let previousMatch = NSButton()
     private let nextMatch = NSButton()
-    private var searchResults: [PDFSelection] = []
+    private var searchResults: [PDFSearchCoordinator.Match] = []
+    private let pdfSearch=PDFSearchCoordinator()
+    private var searchFinished=true
+    private var searchTotal=0
     private let searchScope = NSSegmentedControl(labels:["PDF 原文","批注"],trackingMode:.selectOne,target:nil,action:nil)
     private let noteFilter = NSPopUpButton()
     private var noteResults:[AnnotationNote]=[]
@@ -130,8 +133,8 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             guard let self else { return true }
             let canonical = url.resolvingSymlinksInPath()
             let blockers = AppDelegate.shared.readers.filter { $0 !== self && ($0.session.fileURL.resolvingSymlinksInPath() == canonical || $0.session.savingTarget == canonical) }
-            if !blockers.isEmpty { print("Save target open:", blockers.map { $0.session.fileURL.path }) }
-            return !blockers.isEmpty
+            if !blockers.isEmpty && EcruEnvironment.value("ECRU_DETAILED_DIAGNOSTICS")=="1" { print("Save target open:", blockers.map { $0.session.fileURL.path }) }
+            return !blockers.isEmpty || AppDelegate.shared.isDocumentOpening(canonical)
         }
         buildOutline(); layoutViews(); refresh()
         if !session.annotationWarnings.isEmpty { DispatchQueue.main.async { [weak self] in guard let self, !self.disconnected else { return }; self.openNoteSearch() } }
@@ -479,6 +482,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         }?.1 ?? "自选颜色"
     }
     @objc func changeTool(_ sender: NSButton) {
+        guard !canvas.gesture else { return }
         if session.annotationReadOnly && sender.tag != ReaderTool.select.rawValue && sender.tag != ReaderTool.laser.rawValue { showSaveState(); return }
         canvas.finishInterruptedInput(); noteCard.dismiss(); selectionAdd.isHidden=true; closeParameters(); canvas.setTool(ReaderTool(rawValue: sender.tag)!); refresh(); window?.makeFirstResponder(canvas) }
     @objc private func showLaserSettings(_ sender:NSButton) {
@@ -606,6 +610,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     @objc func hideSearch() {
         guard !canvas.gesture else { return }; closeParameters()
         preservePosition(keepExactZoom:true) { searchVisible = false; sidebarVisible = previousSidebarState.0; sidebarTabs.selectedSegment = previousSidebarState.1 }
+        pdfSearch.cancel();searchGeneration+=1;searchFinished=true
         pdfView.highlightedSelections = nil; pdfView.clearSelection(); table.reloadData(); window?.makeFirstResponder(canvas); refresh()
     }
     func controlTextDidChange(_ obj: Notification) { if obj.object as AnyObject? === searchField { performSearch() } }
@@ -613,6 +618,8 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     private func performSearch() {
         let query=searchField.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
         searchGeneration+=1;let generation=searchGeneration
+        pdfSearch.cancel()
+        if (searchField.currentEditor() as? NSTextView)?.hasMarkedText()==true {return}
         if searchingNotes {
             searchField.placeholderString="搜索正文或引用；留空查看全部";searchField.setAccessibilityLabel("搜索批注")
             noteResults=session.annotations.notes.filter { n in
@@ -629,9 +636,21 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             }
         } else {
             searchField.placeholderString="搜索 PDF 原文";searchField.setAccessibilityLabel("搜索 PDF 原文")
-            searchResults=query.isEmpty ? [] : session.document.findString(query,withOptions:[.caseInsensitive])
-            let hasText=(session.document.string ?? "").trimmingCharacters(in:.whitespacesAndNewlines).isEmpty == false
-            matchLabel.stringValue = !hasText ? "此 PDF 无可检索文字" : query.isEmpty ? "输入文字开始查找" : searchResults.isEmpty ? "没有匹配结果" : "\(searchResults.count) 个匹配"
+            searchResults=[];searchTotal=0;searchFinished=false
+            matchLabel.stringValue=query.isEmpty ? "输入文字开始查找":"正在搜索…"
+            pdfSearch.configure(data:session.searchData,identity:session.searchIdentity)
+            let identity=session.searchIdentity
+            pdfSearch.search(query) {[weak self] progress in
+                guard let self,!self.disconnected,self.searchVisible,!self.searchingNotes,
+                      self.searchGeneration==generation,self.session.searchIdentity==identity else{return}
+                self.searchResults += progress.matches;self.searchTotal=progress.total;self.searchFinished=progress.finished
+                if progress.availability == .unsearchable {self.matchLabel.stringValue="此 PDF 无可检索文字"}
+                else if query.isEmpty {self.matchLabel.stringValue="输入文字开始查找"}
+                else if progress.finished && progress.total==0 {self.matchLabel.stringValue="没有匹配结果"}
+                else {self.matchLabel.stringValue="\(progress.total) 个匹配"+(progress.finished ? "":" · 搜索中")+(progress.limited ? " · 显示前 \(PDFSearchCoordinator.resultLimit) 个":"")}
+                self.table.reloadData();self.previousMatch.isEnabled=self.resultCount>0;self.nextMatch.isEnabled=self.resultCount>0
+            }
+
         }
         pdfView.highlightedSelections=nil;table.deselectAll(nil);table.reloadData();previousMatch.isEnabled=resultCount>0;nextMatch.isEnabled=resultCount>0
     }
@@ -644,10 +663,12 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             let note=noteResults[index];hideSearch();showNote(note.id);return
         }
         guard searchResults.indices.contains(index) else{return}
-        closeParameters();canvas.clearSelection();let selection=searchResults[index]
+        closeParameters();canvas.clearSelection();guard let selection=PDFSearchCoordinator.selection(searchResults[index],in:session.document) else{return}
         if let page=selection.pages.first {navigate(to:PDFDestination(page:page,at:CGPoint(x:selection.bounds(for:page).minX,y:selection.bounds(for:page).maxY)))}
         selection.color=NSColor.systemOrange.withAlphaComponent(0.40);pdfView.highlightedSelections=[selection]
-        table.selectRowIndexes(IndexSet(integer:index),byExtendingSelection:false);table.scrollRowToVisible(index);matchLabel.stringValue="第 \(index+1) / \(searchResults.count) 个匹配";refresh()
+        table.selectRowIndexes(IndexSet(integer:index),byExtendingSelection:false);table.scrollRowToVisible(index)
+        matchLabel.stringValue="第 \(index+1) / \(searchTotal) 个匹配"+(searchTotal>PDFSearchCoordinator.resultLimit ? " · 显示前 \(PDFSearchCoordinator.resultLimit) 个":"")
+        refresh()
     }
     private func updateOutlineSelection() {
         guard sidebarVisible,!searchVisible,sidebarTabs.selectedSegment==1,let page=pdfView.currentPage else{return}
@@ -677,18 +698,10 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             let summary=noteSummaries[n.id].flatMap{$0.0==n.revision ? $0.1 : nil} ?? (n.markdown.isEmpty ? "空正文 · 点击编辑" : "点击阅读正文与公式")
             label.stringValue=state+"\n"+summary
         } else if searchVisible {
-            guard searchResults.indices.contains(row) else { return cell }; let selection = searchResults[row]
-            let pageIndex = selection.pages.first.map { session.document.index(for:$0)+1 } ?? 0
-            let line = selection.pages.first.flatMap { $0.selectionForLine(at:selection.bounds(for:$0).origin)?.string } ?? selection.string ?? ""
-            let clean=line.replacingOccurrences(of:"\n",with:" ").trimmingCharacters(in:.whitespacesAndNewlines)
-            let query=searchField.stringValue.trimmingCharacters(in:.whitespacesAndNewlines)
-            var snippet=String(clean.prefix(90))
-            if !query.isEmpty,let match=clean.range(of:query,options:.caseInsensitive) {
-                let start=clean.index(match.lowerBound,offsetBy:-24,limitedBy:clean.startIndex) ?? clean.startIndex
-                let end=clean.index(match.upperBound,offsetBy:60,limitedBy:clean.endIndex) ?? clean.endIndex
-                snippet=(start>clean.startIndex ? "…" : "")+String(clean[start..<end])+(end<clean.endIndex ? "…" : "")
-            }
-            label.stringValue = "第 \(pageIndex) 页\n\(snippet)"
+            guard searchResults.indices.contains(row) else {return cell}
+            let match=searchResults[row],pageIndex=(match.fragments.first?.page ?? -1)+1
+            label.stringValue="第 \(pageIndex) 页\n\(match.snippet)"
+
         } else if outlineRows.isEmpty { label.stringValue = "此 PDF 没有目录\n可切换到缩略图" }
         else { label.stringValue = String(repeating:"  ", count:outlineRows[row].1) + (outlineRows[row].0.label ?? "未命名目录") }
         if searchVisible, let newline = label.stringValue.firstIndex(of:"\n") {
@@ -846,7 +859,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func disconnectInputAndViews() {
         guard !disconnected else { return }
         canvas.finishInterruptedInput()
-        disconnected = true;canvas.disconnectImageImports()
+        disconnected = true;pdfSearch.cancel();searchGeneration+=1;canvas.disconnectImageImports()
         if NSCursor.current === ReaderCanvas.paperCursor {NSCursor.arrow.set()}
         inputScope?.stop(); inputScope = nil
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
@@ -900,7 +913,15 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         let sender=NSButton();sender.tag=tool.rawValue;changeTool(sender)
     }
     func testSelectTool(_ tool:ReaderTool) { selectTool(tool) }
-    func testSearch(_ query:String) { searchScope.selectedSegment=0; openSearch(); searchField.stringValue = query; performSearch() }
+    func testSearch(_ query:String) {
+        searchScope.selectedSegment=0;openSearch();searchField.stringValue=query;performSearch()
+        // Existing synchronous test convenience waits through the real async path.
+        let deadline=Date().addingTimeInterval(10)
+        while !searchFinished && Date()<deadline {RunLoop.current.run(until:Date().addingTimeInterval(0.01))}
+    }
+    func testStartSearch(_ query:String) {searchScope.selectedSegment=0;openSearch();searchField.stringValue=query;performSearch()}
+    var testSearchFinished:Bool {searchFinished}
+    var testSearchTotal:Int {searchTotal}
     func testMatch(_ index:Int) { activateMatch(at:index) }
     var testResultCount:Int { resultCount }
     func testNoteSearch(_ category:Int=0) {openNoteSearch();noteFilter.selectItem(at:category);performSearch()}

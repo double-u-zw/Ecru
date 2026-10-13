@@ -49,12 +49,14 @@ struct RecoveryRecord: Codable {
 
 /// Saved PDFs are self-contained. Crash recovery may pair an immutable PDF base
 /// with the latest value-type ink model; it is never the primary note store.
-/// All PDFKit access and mutation happens on the main thread. The save worker receives
-/// immutable captured bytes, so edits made during a save remain unsaved.
+/// The displayed PDFKit graph stays on main. Workers parse separate graphs from
+/// immutable bytes and values, so edits made during a save remain unsaved.
 final class DocumentSession {
     // The displayed PDF contains original content and foreign/text annotations only.
     // Editable ink lives here, including the active stroke, and is rendered once by its PDFKit page overlay.
     private(set) var capabilities: PDFCapabilities
+    private(set) var searchData:Data
+    private(set) var searchIdentity=UUID()
     private(set) var document: PDFDocument
     private(set) var annotations = AnnotationStore(pages: [], ink: [])
     private var inkPages: [[InkStroke]] {
@@ -91,6 +93,15 @@ final class DocumentSession {
     private var originalContent: PDFContentIntegrity
     private var undoEntries: [ActionEntry] = []
     private var redoEntries: [ActionEntry] = []
+    private var historyBytes = 0
+    private var historyBudget = 128 * 1024 * 1024
+    #if ECRU_INPUT_TESTS
+    func testSetHistoryBudget(_ bytes:Int){historyBudget=bytes}
+    #endif
+    var historyEstimatedBytes:Int {historyBytes}
+    var undoActionCount:Int {undoEntries.count}
+    var recoveryMetrics:RecoveryStore.Metrics {recoveryWriter.metrics}
+    var recoveryStageHook:((String)throws->Void)? {get{recoveryWriter.stageHook}set{recoveryWriter.stageHook=newValue}}
     private var pendingAction: (String, Snapshot)?
     private var pendingActionToken: UUID?
     // Immutable PDF base for recovery; ink is captured separately without PDFKit.
@@ -107,6 +118,9 @@ final class DocumentSession {
         var info = stat()
         var directoryInfo = stat()
         let parent = fileURL.deletingLastPathComponent().path
+        // A recovered document whose original is missing remains editable;
+        // save-to-original is conflict protected, and Save As is available.
+        if stat(fileURL.path,&info) != 0 && errno==ENOENT {return false}
         return stat(fileURL.path, &info) != 0 || info.st_mode & 0o222 == 0 ||
             info.st_flags & UInt32(UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND) != 0 ||
             stat(parent, &directoryInfo) != 0 || directoryInfo.st_mode & 0o222 == 0 ||
@@ -127,13 +141,24 @@ final class DocumentSession {
     static func canonicalURL(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
     static func open(url: URL, password: String? = nil) throws -> DocumentSession {
         let canonical = canonicalURL(url)
-        let data = try Data(contentsOf: canonical)
+        let data:Data
+        var missingSource=false
+        do {data=try Data(contentsOf:canonical)}catch {
+            let failure=error as NSError
+            guard failure.domain==NSCocoaErrorDomain && (failure.code==NSFileReadNoSuchFileError || failure.code==NSFileNoSuchFileError) else{throw error}
+            let key=Self.fingerprint(Data(canonical.path.utf8))
+            let url=EcruEnvironment.applicationSupportDirectory.appendingPathComponent("Recovery/"+key+".json")
+            let record=try RecoveryStore.read(url)
+            guard canonicalURL(URL(fileURLWithPath:record.sourcePath))==canonical else{throw error}
+            data=record.pdfData;missingSource=true
+        }
+        // Reject malformed graphs before entering the platform PDF parser.
+        let inspection = try PDFPagePreservation.inspect(data, password: password)
         guard let original = PDFDocument(data: data) else { throw DocumentSessionError.invalidPDF }
         if original.isLocked {
             guard let password else { throw DocumentSessionError.passwordRequired }
             guard original.unlock(withPassword: password), !original.isLocked else { throw DocumentSessionError.incorrectPassword }
         }
-        let inspection = try PDFPagePreservation.inspect(data, password: password)
         var capabilities = PDFCapabilities.assess(inspection.features, allowsCommenting: original.allowsCommenting, allowsPrinting: original.allowsPrinting)
         if capabilities.canEdit, let keywords=original.documentAttributes?[PDFDocumentAttribute.keywordsAttribute] as? [String], keywords.contains("EcruStaticAnnotationCopy") {
             capabilities=PDFCapabilities(mode:.annotationCopy,features:inspection.features,reasons:["仅含转换时的静态页面；原动态结构与可编辑批注已移除。"],canCreateStaticCopy:false)
@@ -145,11 +170,14 @@ final class DocumentSession {
                   let r=p.bounds(for:.cropBox)
                   return r.width.isFinite && r.height.isFinite && r.width>0 && r.height>0
               }) else { throw DocumentSessionError.invalidPDF }
-        return try DocumentSession(document: document, url: canonical, data: data, readingData: readingData, capabilities: capabilities)
+        let session=try DocumentSession(document: document, url: canonical, data: data, readingData: readingData, capabilities: capabilities)
+        if missingSource {session.conflictDetected=true}
+        return session
     }
 
     private init(document: PDFDocument, url: URL, data: Data, readingData: Data, capabilities: PDFCapabilities) throws {
         self.document = document
+        self.searchData = readingData
         self.capabilities = capabilities
         fileURL = url
         backingData = data
@@ -407,20 +435,22 @@ final class DocumentSession {
         guard beginInkAction("插入图片") else{throw DocumentSessionError.readOnly}
         annotations=next;onInkChange?(page,object.bounds,.reset);finishAction();return object.id
     }
-    func replaceObjects(on page:PDFPage,ids:Set<UUID>,ink:[InkStroke],images:[PageImage],marks:[PageMark]=[]) {
+    func replaceObjects(on page:PDFPage,ids proposedIDs:Set<UUID>,ink:[InkStroke],images:[PageImage]) {
         precondition(pendingAction != nil)
+        let ids=proposedIDs.intersection(annotations.movableObjectIDs)
         replaceInk(on:page,ids:Set(inkPages[document.index(for:page)].filter{ids.contains($0.id)}.map(\.id)),with:ink)
         annotations.images.removeAll{ids.contains($0.id)};annotations.images += images
-        let previousMarks=annotations.marks.filter{ids.contains($0.id)}
-        annotations.marks.removeAll{ids.contains($0.id)};annotations.marks += marks
-        let retained=Set(ink.map(\.id)+images.map(\.id)+marks.map(\.id)),removed=ids.subtracting(retained)
+        let retained=Set(ink.map(\.id)+images.map(\.id)),removed=ids.subtracting(retained)
         annotations.groups=annotations.groups.compactMap{var g=$0;g.members.removeAll{removed.contains($0)};return g.members.count>=2 ? g:nil}
         annotations.objectOrder=annotations.objectOrder?.filter{!removed.contains($0)}
         for n in annotations.notes.indices {annotations.notes[n].links.removeAll{removed.contains($0.markID)}}
-        if !previousMarks.isEmpty || !marks.isEmpty {syncMarkAdapters()}
         onInkChange?(page,page.bounds(for:.cropBox),.reset)
     }
-    func pasteObjects(_ packet:ObjectClipboard,on page:PDFPage,center:CGPoint)throws->Set<UUID> {
+    func pasteObjects(_ incoming:ObjectClipboard,on page:PDFPage,center:CGPoint)throws->Set<UUID> {
+        var packet=incoming;packet.marks=[]
+        let movable=Set(packet.ink.map(\.id)+packet.images.map(\.id))
+        packet.groups=packet.groups.compactMap{var group=$0;group.members=group.members.filter{movable.contains($0)};return group.members.count>=2 ? group:nil}
+        packet.order=packet.order.filter{movable.contains($0)}
         guard !annotationReadOnly,!currentFileIsReadOnly else{throw DocumentSessionError.readOnly}
         let ids=packet.ink.map(\.id)+packet.images.map(\.id)+packet.marks.map(\.id)
         guard !ids.isEmpty,Set(ids).count==ids.count else{throw DocumentSessionError.invalidPDF}
@@ -438,7 +468,8 @@ final class DocumentSession {
         guard beginInkAction("粘贴对象") else{throw DocumentSessionError.readOnly}
         annotations=next;syncMarkAdapters();onInkChange?(page,page.bounds(for:.cropBox),.reset);finishAction();return Set(mapping.values)
     }
-    func groupObjects(_ ids:Set<UUID>,ungroup:Bool=false) {
+    func groupObjects(_ proposed:Set<UUID>,ungroup:Bool=false) {
+        let ids=proposed.intersection(annotations.movableObjectIDs)
         guard ids.count>=2 || ungroup,beginInkAction(ungroup ? "取消组合":"组合对象") else{return}
         let expanded=annotations.expanded(ids)
         annotations.groups.removeAll{!expanded.isDisjoint(with:$0.members)}
@@ -503,10 +534,17 @@ final class DocumentSession {
     // Export into a detached document. The displayed PDF never temporarily gains a
     // second copy of Canvas ink, even during undo snapshots, recovery, or a slow save.
     func portableDocument() -> PDFDocument? {
-        guard !annotationReadOnly, let exported = PDFDocument(data: backingData), exported.pageCount == document.pageCount else { return nil }
+        guard !annotationReadOnly else{return nil}
+        return Self.exportDocument(base:backingData,model:annotations,slots:managedSourceSlots,origins:sourceMarkSlots)
+    }
+
+    // Each export owns its PDFKit graph entirely on its calling queue.
+    private static func exportDocument(base:Data,model annotations:AnnotationStore,slots managedSourceSlots:[Set<Int>],origins sourceMarkSlots:[UUID:(Int,Int)]) -> PDFDocument? {
+        let inkPages=annotations.ink
+        guard let exported = PDFDocument(data: base), exported.pageCount == inkPages.count else { return nil }
         var originals: [UUID:PDFAnnotation] = [:]
         for (id,slot) in sourceMarkSlots { if let p=exported.page(at:slot.0),p.annotations.indices.contains(slot.1) { originals[id]=p.annotations[slot.1] } }
-        for index in 0..<document.pageCount {
+        for index in 0..<exported.pageCount {
             guard let page = exported.page(at:index) else { return nil }
             // Remove only known managed source slots. Foreign annotations/resources remain in place.
             for (slot,a) in page.annotations.enumerated() where managedSourceSlots[index].contains(slot) { page.removeAnnotation(a) }
@@ -517,11 +555,13 @@ final class DocumentSession {
             a.setValue(mark.id.uuidString,forAnnotationKey:AnnotationPDF.markKey)
             exported.page(at:mark.anchor.page)?.addAnnotation(a)
         }
+        let imagesByID=Dictionary(uniqueKeysWithValues:annotations.images.map{($0.id,$0)})
         for index in inkPages.indices {
+            let inkByID=Dictionary(uniqueKeysWithValues:inkPages[index].map{($0.id,$0)})
             for id in annotations.orderedIDs(on:index) {
-                if let image=annotations.images.first(where:{$0.id==id}),let data=annotations.imageAssets?[image.asset] {
+                if let image=imagesByID[id],let data=annotations.imageAssets?[image.asset] {
                     exported.page(at:index)?.addAnnotation(ImagePDFAnnotation(image,data:data))
-                } else if let stroke=inkPages[index].first(where:{$0.id==id}) {
+                } else if let stroke=inkByID[id] {
                     let a=InkAnnotationCodec.make(stroke);a.setValue(id.uuidString,forAnnotationKey:AnnotationPDF.markKey)
                     exported.page(at:index)?.addAnnotation(a)
                 }
@@ -592,7 +632,12 @@ final class DocumentSession {
         revision = UUID()
         let revised = Snapshot(data: after.data, revision: revision, signature: after.signature, inkOnly: after.inkOnly, model: after.model)
         recoveryBasePDF = after.data
-        undoEntries.append(ActionEntry(label: label, before: before, after: revised))
+        let change=AnnotationChange(from:before.model,to:after.model)
+        let entry=ActionEntry(label:label,beforeRevision:before.revision,afterRevision:revised.revision,change:change)
+        historyBytes -= redoEntries.reduce(0){$0+$1.change.estimatedBytes}
+        undoEntries.append(entry);historyBytes += change.estimatedBytes
+        // Retire only oldest complete actions, preserving useful recent undo/redo.
+        while historyBytes>historyBudget && undoEntries.count>32 {historyBytes -= undoEntries.removeFirst().change.estimatedBytes}
         redoEntries.removeAll()
         if after.inkOnly { scheduleInkRecovery() }
         else { checkpointRecovery(captured: after.data) }
@@ -602,20 +647,22 @@ final class DocumentSession {
     func undo() {
         finishAction()
         guard pendingAction == nil else { return }
-        guard let action = undoEntries.popLast(), restore(action.before) else { return }
+        guard let action = undoEntries.popLast() else { return }
+        let old=annotations;applyHistory(action,forward:false)
         redoEntries.append(action)
-        historyNote(action.before.model, other:action.after.model, label:"撤销 · " + action.label)
-        if action.before.inkOnly { scheduleInkRecovery() } else { checkpointRecovery() }
+        historyNote(annotations, other:old, label:"撤销 · " + action.label)
+        scheduleInkRecovery()
         onChange?()
     }
 
     func redo() {
         finishAction()
         guard pendingAction == nil else { return }
-        guard let action = redoEntries.popLast(), restore(action.after) else { return }
+        guard let action = redoEntries.popLast() else { return }
+        let old=annotations;applyHistory(action,forward:true)
         undoEntries.append(action)
-        historyNote(action.after.model, other:action.before.model, label:"重做 · " + action.label)
-        if action.after.inkOnly { scheduleInkRecovery() } else { checkpointRecovery() }
+        historyNote(annotations, other:old, label:"重做 · " + action.label)
+        scheduleInkRecovery()
         onChange?()
     }
 
@@ -628,6 +675,14 @@ final class DocumentSession {
             return nil
         }
         return Snapshot(data: data, revision: revision, signature: exported.map { PDFFidelity($0).signature } ?? "", model: annotations)
+    }
+
+    private func applyHistory(_ action:ActionEntry,forward:Bool) {
+        let old=annotations
+        annotations=action.change.applying(to:annotations,forward:forward)
+        revision=forward ? action.afterRevision:action.beforeRevision
+        if old.marks != annotations.marks {syncMarkAdapters()}
+        invalidateModelDifference(old)
     }
 
     private func restore(_ snapshot: Snapshot) -> Bool {
@@ -647,7 +702,8 @@ final class DocumentSession {
         }
     }
 
-    /// Manual save only. Capture is synchronous, validation and atomic I/O are asynchronous.
+    /// Manual save only. Main captures immutable values; detached export, validation
+    /// and atomic I/O execute serially on the save worker.
     func save(to proposedURL: URL? = nil, completion: @escaping (Result<SaveOutcome, Error>) -> Void) {
         precondition(Thread.isMainThread)
         finishAction()
@@ -660,19 +716,16 @@ final class DocumentSession {
         guard backingPages.count == document.pageCount && backingPages.enumerated().allSatisfy({ document.page(at: $0.offset) === $0.element }) else {
             failSave(DocumentSessionError.validation("原始页面内容或图像资源的页面身份改变"), completion: completion); return
         }
-        guard let exported = portableDocument(), let bytes = portableData(exported) else { failSave(DocumentSessionError.serialize, completion: completion); return }
-        let expectedManifest = try? AnnotationPDF.encode(annotations)
         let capturedRevision = revision
-        let fidelity = PDFFidelity(exported)
-        let expectedOpacity = AppearanceOpacityExpectation.capture(exported)
+        let capturedModel=annotations
         let originalBytes = backingData
         let removedSlots = managedSourceSlots
+        let origins=sourceMarkSlots
         let structure = originalStructure
         let content = originalContent
-        let expectedFingerprint: String?
-        do {
-            expectedFingerprint = sameTarget ? originalFingerprint : (FileManager.default.fileExists(atPath: target.path) ? Self.fingerprint(try Data(contentsOf: target)) : nil)
-        } catch { failSave(error, completion: completion); return }
+        let sourceFingerprint=originalFingerprint
+        // Save As target identity is read on the worker, before capture/export.
+        // The final atomic write still checks it again immediately before rename.
         isSaving = true
         savingTarget = target
         lastError = nil
@@ -680,9 +733,24 @@ final class DocumentSession {
         let hook = saveWorkHook
         worker.async { [weak self] in
             let result: Result<String, Error>
+            // PDFKit can create AppKit annotation adaptors even for detached
+            // graphs. Transfer their final teardown to main after worker use.
+            var detachedDocuments:[PDFDocument]=[]
+            defer {
+                let completed=detachedDocuments
+                DispatchQueue.main.async {withExtendedLifetime(completed){}}
+            }
             do {
+                let expectedFingerprint:String? = sameTarget ? sourceFingerprint:(FileManager.default.fileExists(atPath:target.path) ? Self.fingerprint(try Data(contentsOf:target)):nil)
                 hook?()
+                guard let exported=Self.exportDocument(base:originalBytes,model:capturedModel,slots:removedSlots,origins:origins) else{throw DocumentSessionError.serialize}
+                detachedDocuments.append(exported)
+                guard let raw=exported.dataRepresentation(),let bytes=PDFPagePreservation.preserve(originalBytes,in:raw,removing:removedSlots) else {throw DocumentSessionError.serialize}
+                let expectedManifest=(0..<exported.pageCount).flatMap{exported.page(at:$0)!.annotations}.compactMap{$0.value(forAnnotationKey:AnnotationPDF.manifest) as? String}.first
+                let fidelity=PDFFidelity(exported)
+                let expectedOpacity=AppearanceOpacityExpectation.capture(exported)
                 guard let reopened = PDFDocument(data: bytes) else { throw DocumentSessionError.validation("重开失败") }
+                detachedDocuments.append(reopened)
                 try Self.checkSupported(document: reopened, data: bytes)
                 guard PDFPagePreservation.validate(originalBytes, saved:bytes, removing:removedSlots) else {
                     throw DocumentSessionError.validation("表单、附件或未修改对象关系改变")
@@ -831,7 +899,7 @@ final class DocumentSession {
 
     var recoverableRecord: RecoveryRecord? {
         recoveryWriter.flush()
-        guard let data = try? Data(contentsOf: recoveryURL), let record = try? JSONDecoder().decode(RecoveryRecord.self, from: data), (1...7).contains(record.version),
+        guard let record = try? RecoveryStore.read(recoveryURL), (1...7).contains(record.version),
               Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL else { return nil }
         return record
     }
@@ -863,10 +931,11 @@ final class DocumentSession {
         }
         let recoveredContent = try PDFContentIntegrity(record.pdfData)
         // A source changed since a crash is retained as a conflict, never overwritten.
-        conflictDetected = record.originalFingerprint != originalFingerprint
+        conflictDetected = record.originalFingerprint != originalFingerprint || !FileManager.default.fileExists(atPath:fileURL.path)
         originalFingerprint = record.originalFingerprint
         backingData = record.pdfData
         document = restored
+        searchData=record.pdfData;searchIdentity=UUID()
         recoveryBasePDF = record.pdfData
         originalContent = recoveredContent
         importEditableInk()
@@ -883,7 +952,7 @@ final class DocumentSession {
         originalContent = recoveredContent
         revision = UUID() // Recovery always remains unsaved, even if its bytes equal disk.
         undoEntries.removeAll()
-        redoEntries.removeAll()
+        redoEntries.removeAll();historyBytes=0
         isRecovered = true
         lastError = nil
         checkpointRecovery()
@@ -905,7 +974,7 @@ final class DocumentSession {
         var failures: [String] = []
         for url in urls {
             do {
-                try FileManager.default.removeItem(at: url)
+                try RecoveryStore.remove(url)
                 pendingOldRecoveryURLs.remove(url)
             } catch {
                 let failure = error as NSError
@@ -930,24 +999,16 @@ final class DocumentSession {
     }
 
     func checkpointRecovery(captured: Data? = nil) {
-        guard !annotationReadOnly else { return }
-        recoveryWriter.cancelAndWait()
-        if !isModified { discardRecovery(); return }
-        let generated = recoveryDataProvider.map { $0() } ?? captured ?? portableData(portableDocument())
-        guard let bytes = generated else {
-            let pending = pendingOldRecoveryURLs.isEmpty ? "" : "；旧路径的恢复记录也尚未清理"
-            lastError = DocumentSessionError.io("自动恢复数据生成失败，当前内容仍在窗口\(pending)")
-            onChange?()
-            return
+        guard !annotationReadOnly else{return}
+        if let provider=recoveryDataProvider,provider()==nil {
+            lastError=DocumentSessionError.io("自动恢复数据生成失败，当前内容仍在窗口")
+            onChange?();return
         }
-        let record = RecoveryRecord(version: 1, sourcePath: fileURL.path, originalFingerprint: originalFingerprint, pdfData: bytes, revision: revision, updatedAt: Date())
-        do {
-            try FileManager.default.createDirectory(at: recoveryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(record).write(to: recoveryURL, options: .atomic)
-        } catch {
-            // Recovery failure is visible and does not masquerade as a successful save.
-            lastError = DocumentSessionError.io("自动恢复保护写入失败：\(error.localizedDescription)")
-        }
+        scheduleInkRecovery()
+        recoveryWriter.flush()
+        // Explicit lifecycle checkpoint waits for durability, not PDF export.
+        // Deliver a worker failure synchronously as existing save/quit callers require.
+        if let error=recoveryWriter.failure,isModified {lastError=DocumentSessionError.io("自动恢复保护写入失败：\(error.localizedDescription)")}
     }
 
     private func scheduleInkRecovery() {
@@ -961,7 +1022,10 @@ final class DocumentSession {
             guard let self, self.isModified, self.revision == record.revision,
                   self.recoveryURL == target else { return }
             if let error {
-                self.lastError = DocumentSessionError.io("自动恢复保护写入失败：\(error.localizedDescription)")
+                let reason="自动恢复保护写入失败：\(error.localizedDescription)"
+                if let existing=self.lastError,case DocumentSessionError.recoveryCleanup=existing {
+                    if !existing.localizedDescription.contains(reason) {self.lastError=DocumentSessionError.recoveryCleanup(existing.localizedDescription+"；"+reason)}
+                } else {self.lastError = DocumentSessionError.io(reason)}
                 self.onChange?()
             }
         }
@@ -1191,8 +1255,8 @@ final class DocumentSession {
         // existed. Restore its exact baseline revision, without a phantom dirty
         // document or a redo entry that resurrects an empty note.
         if pendingAction == nil,let creation=undoEntries.last,
-           creation.after.model==annotations,!creation.before.model.notes.contains(where:{$0.id==id}) {
-            _ = restore(creation.before);undoEntries.removeLast();scheduleInkRecovery();onChange?();return
+           creation.afterRevision==revision,!creation.change.applying(to:annotations,forward:false).notes.contains(where:{$0.id==id}) {
+            applyHistory(creation,forward:false);undoEntries.removeLast();historyBytes -= creation.change.estimatedBytes;scheduleInkRecovery();onChange?();return
         }
         if !preserveMarks {deleteNote(id);return}
         guard beginInkAction("取消空正文，保留原标记") else{return}
@@ -1230,7 +1294,7 @@ final class DocumentSession {
     }
 
     private struct Snapshot { let data: Data; let revision: UUID; let signature: String; var inkOnly = false; let model: AnnotationStore }
-    private struct ActionEntry { let label: String; let before: Snapshot; let after: Snapshot }
+    private struct ActionEntry {let label:String;let beforeRevision:UUID;let afterRevision:UUID;let change:AnnotationChange}
 }
 
 private func number(_ value: CGFloat) -> String { String(format: "%.4f", Double(value)) }
@@ -1529,61 +1593,4 @@ private final class AlphaGraphicsStateCollector {
     let expected: Double
     var names: [String] = []
     init(expected: Double) { self.expected = expected }
-}
-
-
-/// One pending recovery value, independent of the input/main queue. Newer
-/// revisions replace pending work; no PDFKit object crosses this boundary.
-private final class InkRecoveryWriter {
-    private let queue = DispatchQueue(label: "Ecru.ink-recovery", qos: .utility)
-    private let lock = NSLock()
-    private var generation: UInt64 = 0
-    private var pending: Job?
-    private var draining = false
-    private struct Job {
-        let generation: UInt64
-        let record: RecoveryRecord
-        let url: URL
-        let hook: (() -> Void)?
-        let completion: (Error?) -> Void
-    }
-    func submit(_ record: RecoveryRecord, to url: URL, hook: (() -> Void)?, completion: @escaping (Error?) -> Void) {
-        lock.lock()
-        generation &+= 1
-        pending = Job(generation: generation, record: record, url: url, hook: hook, completion: completion)
-        let start = !draining
-        draining = true
-        lock.unlock()
-        if start { queue.async { self.drain() } }
-    }
-    private func isCurrent(_ token: UInt64) -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return generation == token
-    }
-    private func drain() {
-        while true {
-            lock.lock()
-            guard let job = pending else { draining = false; lock.unlock(); return }
-            pending = nil
-            lock.unlock()
-            job.hook?()
-            guard isCurrent(job.generation) else { continue }
-            var failure: Error?
-            do {
-                let bytes = try JSONEncoder().encode(job.record)
-                guard isCurrent(job.generation) else { continue }
-                try FileManager.default.createDirectory(at: job.url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try bytes.write(to: job.url, options: .atomic)
-            } catch { failure = error }
-            let result = failure
-            DispatchQueue.main.async {
-                if self.isCurrent(job.generation) { job.completion(result) }
-            }
-        }
-    }
-    func flush() { queue.sync {} }
-    func cancelAndWait() {
-        lock.lock(); generation &+= 1; pending = nil; lock.unlock()
-        queue.sync {}
-    }
 }

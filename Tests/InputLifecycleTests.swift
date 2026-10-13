@@ -109,6 +109,9 @@ private final class FakeEvents {
               "responsive native input remains one complete undo action")
         mouse(reader,.leftMouseDown,CGPoint(x:120,y:400)); mouse(reader,.leftMouseDragged,CGPoint(x:140,y:405))
         check(reader.canvas.gesture && !NSEvent.isMouseCoalescingEnabled, "pen action acquires its coalescing setting")
+        reader.selectTool(.eraser); reader.openSearch()
+        check(reader.canvas.gesture && reader.canvas.tool == .pen && !reader.searchVisible,
+              "held pen rejects tool changes and search without prematurely committing")
         reader.canvas.keyDown(with:key(.keyDown,code:53,window:reader.window!.windowNumber))
         check(!reader.canvas.gesture && reader.canvas.activePage == nil && NSEvent.isMouseCoalescingEnabled == previousCoalescing,
               "Escape closes actual pen transaction and restores coalescing")

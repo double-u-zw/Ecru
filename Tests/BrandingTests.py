@@ -14,6 +14,11 @@ expected=plistlib.loads((root/'Scripts/Info.plist').read_bytes())
 for key in ['CFBundleShortVersionString','CFBundleVersion','EcruReleaseVersion','LSMinimumSystemVersion']:
     assert info[key]==expected[key],f'Bundle/source version mismatch: {key}'
 assert info['LSMinimumSystemVersion']=='13.0'
+from importlib.machinery import SourceFileLoader
+source=SourceFileLoader('identity',str(root/'Scripts/source-identity.py')).load_module().identity()
+assert info['EcruSourceSHA256']==source['sourceSHA256'],'Tested App does not match current build inputs'
+assert info['EcruWorkspaceDirty']==source['dirty'],'Tested App working-tree state differs'
+
 import json
 configuration=json.loads((app/'Contents/Resources/InkSource/parameters.json').read_text())
 assert configuration['version']==info['EcruReleaseVersion']

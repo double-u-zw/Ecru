@@ -466,6 +466,17 @@ enum InkRuntimeReport {
     private static var observers:[NSObjectProtocol] = []
     private static var scales:[Int:Double] = [:]
     private static var lastInput:[String:Any] = [:]
+    private static var lastCleanup=0.0
+    static var detailed:Bool {EcruEnvironment.value("ECRU_DETAILED_DIAGNOSTICS")=="1"}
+    static func flush(){queue.sync{}}
+    static func cleanup(at folder:URL,now:Date=Date(),clear:Bool=false) {
+        let entries=((try? FileManager.default.contentsOfDirectory(at:folder,includingPropertiesForKeys:[.contentModificationDateKey])) ?? []).filter{$0.pathExtension=="json" && Int($0.deletingPathExtension().lastPathComponent) != nil}
+        let sorted=entries.sorted{((try? $0.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate) ?? .distantPast)>((try? $1.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate) ?? .distantPast)}
+        for (index,url) in sorted.enumerated() {
+            let modified=(try? url.resourceValues(forKeys:[.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            if clear || index>=16 || now.timeIntervalSince(modified)>7*86400 {try? FileManager.default.removeItem(at:url)}
+        }
+    }
     static var receiptURL: URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("EcruInkRuntime",isDirectory:true)
             .appendingPathComponent("\(ProcessInfo.processInfo.processIdentifier).json")
@@ -479,14 +490,15 @@ enum InkRuntimeReport {
         record()
     }
     static func record(window:NSWindow? = nil, scale:Double? = nil, penDown:Bool = false) {
+        if !detailed {lastInput.removeValue(forKey:"windowTitle")}
         if let window,let scale {scales[window.windowNumber]=scale}
         if penDown,let window {
-            lastInput=["windowNumber":window.windowNumber,"windowTitle":window.title,
-                       "uptime":ProcessInfo.processInfo.systemUptime,"scale":scale ?? 0]
+            lastInput=["windowNumber":window.windowNumber,"uptime":ProcessInfo.processInfo.systemUptime,"scale":scale ?? 0]
+            if detailed {lastInput["windowTitle"]=window.title}
         }
         let windows = NSApp.windows.filter{$0.isVisible}.map { w -> [String:Any] in
-            ["windowNumber":w.windowNumber,"title":w.title,"key":w.isKeyWindow,
-             "edited":w.isDocumentEdited,"scale":scales[w.windowNumber] ?? 0]
+            var value:[String:Any]=["windowNumber":w.windowNumber,"key":w.isKeyWindow,"edited":w.isDocumentEdited,"scale":scales[w.windowNumber] ?? 0]
+            if detailed {value["title"]=w.title};return value
         }
         let report:[String:Any] = ["pid":ProcessInfo.processInfo.processIdentifier,
             "configuration":configuration,"active":NSApp.isActive,"windows":windows,
@@ -495,7 +507,10 @@ enum InkRuntimeReport {
         let url=receiptURL
         queue.async {
             try? FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
-            try? data.write(to:url,options:.atomic)
+            let now=ProcessInfo.processInfo.systemUptime
+            if lastCleanup==0 && EcruEnvironment.value("ECRU_CLEAR_DIAGNOSTICS")=="1" {cleanup(at:url.deletingLastPathComponent(),clear:true)}
+            if data.count<=64*1024 {try? data.write(to:url,options:.atomic)}
+            if now-lastCleanup>60 {cleanup(at:url.deletingLastPathComponent());lastCleanup=now}
         }
     }
 }

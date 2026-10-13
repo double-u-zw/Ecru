@@ -21,10 +21,17 @@ import Darwin
             }
             RunLoop.main.add(timer,forMode:.common)
         }
+        func waitUntil(_ condition:()->Bool) {
+            let deadline=Date().addingTimeInterval(10)
+            while !condition() && Date()<deadline {RunLoop.current.run(until:Date().addingTimeInterval(0.01))}
+            check(condition(),"asynchronous open/password decision completes")
+        }
         response(nil,.alertSecondButtonReturn);delegate.open(url)
+        waitUntil{!delegate.isDocumentOpening(url)}
         check(delegate.readers.isEmpty,"password cancellation opens no document")
         response("wrong",.alertFirstButtonReturn) { response("reader-secret",.alertFirstButtonReturn) }
         delegate.open(url)
+        waitUntil{!delegate.isDocumentOpening(url)}
         check(delegate.readers.count == 1 && delegate.readers[0].session.annotationReadOnly,"native password error retries to unlocked read-only reader")
         delegate.readers.first?.window?.close()
         check(try Data(contentsOf:url)==original,"password dialog flow does not write source")

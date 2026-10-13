@@ -6,16 +6,14 @@ AppKit/PDFKit, C++20 and CMake directly; no Xcode project or private SDK is requ
 ## Development environment
 
 Use a Mac with Xcode 15+ (or its matching Command Line Tools), CMake 3.19+,
-Python 3.10+ and zsh. Node.js 22+ is needed for preview tests. Select the active
+Python 3.12+ and zsh. Node.js 22+ is needed for preview tests. Select the active
 Xcode tools with `xcode-select`; check `xcrun swiftc --version` and `cmake --version`.
-Tests need Pillow, reportlab and pypdf; install them in a Python virtual environment:
+The project installs fixed test dependencies into its own virtual environment:
 
 ```sh
 git clone https://github.com/double-u-zw/Ecru.git
 cd Ecru
-python3 -m venv .venv
-source .venv/bin/activate
-python3 -m pip install -r Tests/requirements.txt
+zsh Scripts/setup-tests.sh
 zsh Scripts/build.sh
 open ".build/apps/Ecru Dev.app"
 ```
@@ -76,11 +74,11 @@ contains LICENSE, NOTICE and all third-party texts. Signing is currently ad hoc;
 Developer ID and Apple notarization require the maintainer's credentials.
 
 `.github/workflows/build.yml` builds and tests on Apple Silicon and Intel runners,
-and uploads the runner architecture DMG as a workflow artifact. It does not publish Releases.
+and uploads test identity/results as workflow artifacts. It does not publish Releases or package development changes as an existing release.
 Release scripts explicitly select `ECRU_VARIANT=release` and only produce candidate
 artifacts in the checkout. To build one release App, run
 `ECRU_VARIANT=release ECRU_RELEASE=1 zsh Scripts/build.sh`. The build script refuses
-to write directly to the installed Ecru in /Applications or ~/Applications. Review
+to write directly to installed Ecru/Ecru Dev, any running candidate, or a destination outside .build/apps (including symlinks). Review
 the development build first; update the daily App only after maintainer acceptance.
 
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
@@ -100,3 +98,11 @@ retain the historical bundle ID and data location so existing recovery records
 remain available. Neither build automatically copies the other application's data.
 `ECRU_DATA_DIR`, when explicitly set for tests, overrides either data location.
 Avoid editing the same PDF in both apps at once; use a copy for development.
+
+## Recovery, search and human acceptance
+
+The public suite includes current Google Ink synthetic checks, complex PDF and independent structure checks, separate-process recovery interruption/migration tests, hidden-window asynchronous search tests and existing core/image/laser/writing-tool regressions. Private recorded strokes are not required or exported. Per-run source/App identities and executable hashes are stored in `.build/test-results`. Configuration alone is not evidence that a particular commit has run remotely on either architecture.
+
+Recovery format 8 reads previous versions 1–7 and commits content-addressed PDF bases, checkpoints and bounded delta chains atomically. Search owns a separately parsed PDFKit graph on a serial queue; display, saving and search do not concurrently use the same graph. Text highlights and anchored note regions are excluded from movable object selection. Default runtime diagnostics omit document names, titles, paths and content; detailed titles require `ECRU_DETAILED_DIAGNOSTICS=1`, with bounded retention.
+
+Physical Pencil, real IME candidate behavior, disconnect handling, mixed DPI and prolonged multiwindow usage still require human acceptance. Automated tests do not validate physical latency.

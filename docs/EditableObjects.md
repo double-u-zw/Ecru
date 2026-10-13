@@ -1,6 +1,6 @@
 # 图形填充与图片批注（Ecru Dev build 18）
 
-分支：`codex/editable-images-shape-fill`。沿用 build 17 的 Google Ink、真实压力、六工具、页面 overlay 和安全保存架构；未改写笔迹算法。正式 Ecru、Beta 2 安装包与历史发布均保留。
+当前源码支持七工具、Google Ink、真实压力、页面 overlay 和安全保存。构建与测试方法统一见 [项目入口](../README.md)；历史版本与发布包保持不可变。文字高亮与批注锚定区域不属于可移动对象。
 
 ## 使用
 

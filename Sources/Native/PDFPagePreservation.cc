@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFExc.hh>
 #include <qpdf/QPDFPageDocumentHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 
@@ -179,6 +180,9 @@ extern "C" int ecru_pdf_inspect(const uint8_t* input, size_t size, const char* p
       std::memcpy(*view,b->getBuffer(),b->getSize()); *view_size=b->getSize();
     }
     return 1;
+  } catch (const QPDFExc& error) {
+    if (*view) std::free(*view); *view=nullptr; *view_size=0;
+    return error.getErrorCode() == qpdf_e_password ? -1 : 0;
   } catch (const std::exception&) { if (*view) std::free(*view); *view=nullptr; *view_size=0; return 0; }
 }
 extern "C" int ecru_pdf_preserve_pages(const uint8_t* original, size_t original_size,

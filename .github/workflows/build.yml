@@ -21,31 +21,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install test dependencies
-        run: python3 -m pip install -r Tests/requirements.txt
-      - uses: actions/cache/restore@v4
-        id: native-cache
+      - name: Install isolated pinned test dependencies
+        run: zsh Scripts/setup-tests.sh
+      - name: Build native Dev from a clean dependency graph
+        run: zsh Scripts/build.sh
+      - name: Core, current ink, recovery restart, search and complex PDF regressions
+        run: zsh Scripts/test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          path: .build/native-ink
-          key: native-${{ matrix.runner }}-${{ env.ImageVersion }}-${{ hashFiles('Sources/Native/**', 'ThirdParty/**') }}
-      - name: Build runner architecture
-        run: ECRU_VARIANT=release ECRU_RELEASE=1 zsh Scripts/build.sh
-      - uses: actions/cache/save@v4
-        if: steps.native-cache.outputs.cache-hit != 'true'
-        with:
-          path: .build/native-ink
-          key: ${{ steps.native-cache.outputs.cache-primary-key }}
-      - name: Core tests on the runner architecture
-        run: ECRU_VARIANT=release ECRU_TEST_DIAGNOSTICS=1 zsh Scripts/test.sh
-      - name: Package architecture DMG
-        run: ECRU_RELEASE_DOCS="$PWD" zsh Scripts/package-beta.sh
+          name: Test-results-${{ matrix.runner }}
+          path: .build/test-results/
+          include-hidden-files: true
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: Synthetic-PDF-diagnostics-${{ matrix.runner }}
           path: .build/pdf-save-*.pdf
           include-hidden-files: true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Ecru-${{ matrix.runner }}
-          path: output/releases/*/

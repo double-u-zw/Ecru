@@ -122,7 +122,7 @@ final class ReaderCanvas: NSView {
         };return nil
     }
     func selectObjects(_ ids:Set<UUID>,on page:PDFPage) {
-        clearSelection();selectedIDs=session.annotations.expanded(ids);selectionPage=page;refreshSelectionOutline();reader?.updateParameters();presentation.invalidateAll()
+        clearSelection();selectedIDs=session.annotations.movableSelection(ids);selectionPage=selectedIDs.isEmpty ? nil:page;refreshSelectionOutline();reader?.updateParameters();presentation.invalidateAll()
     }
     private func refreshSelectionOutline() {
         guard let r=selectedBounds else{selectionOutline=[];return}
@@ -132,7 +132,6 @@ final class ReaderCanvas: NSView {
         guard !session.annotationReadOnly,!session.currentFileIsReadOnly,!selectedImages.contains(where:{$0.locked}) else{gesture=false;objectResize=false;return}
         activePage=page
         originalMove=strokes(page).filter{selectedIDs.contains($0.id)};originalImages=selectedImages
-        originalMarks=session.annotations.marks.filter{selectedIDs.contains($0.id)}
         originalOutline=selectionOutline;gesture=true;draggingMove=true
         _=startAction(objectResize ? "缩放对象":"移动对象")
     }
@@ -146,10 +145,7 @@ final class ReaderCanvas: NSView {
             var image=source;let center=CGPoint(x:image.rect.midX,y:image.rect.midY).applying(transform)
             image.rect=CGRect(x:center.x-image.rect.width*scale/2,y:center.y-image.rect.height*scale/2,width:image.rect.width*scale,height:image.rect.height*scale);image.rotation += rotation;return image
         }
-        let marks=originalMarks.map{source -> PageMark in
-            var mark=source;mark.anchor.bounds=mark.anchor.bounds.applying(transform);mark.quads=mark.quads.map(point);mark.textSpan=nil;mark.textEditable=false;return mark
-        }
-        session.replaceObjects(on:page,ids:selectedIDs,ink:ink,images:images,marks:marks);refreshSelectionOutline();presentation.invalidateAll()
+        session.replaceObjects(on:page,ids:selectedIDs,ink:ink,images:images);refreshSelectionOutline();presentation.invalidateAll()
     }
     func completeImageEditing() {
         finishInterruptedInput();let previous=insertionReturnTool;insertionReturnTool=nil
@@ -238,13 +234,14 @@ final class ReaderCanvas: NSView {
             }
         };return true
     }
-    @objc func copy(_ sender:Any?) {
+    @objc func copy(_ sender:Any?) {copyObjects(to:.general)}
+    func copyObjects(to pasteboard:NSPasteboard) {
         guard let page=selectionPage,!selectedIDs.isEmpty else{reader?.copyText();return}
         let images=selectedImages,keys=Set(images.map(\.asset))
-        let packet=ObjectClipboard(ink:strokes(page).filter{selectedIDs.contains($0.id)},images:images,marks:session.annotations.marks.filter{selectedIDs.contains($0.id)},assets:(session.annotations.imageAssets ?? [:]).filter{keys.contains($0.key)},groups:session.annotations.groups.filter{Set($0.members).isSubset(of:selectedIDs)},order:session.annotations.orderedIDs(on:session.document.index(for:page)).filter{selectedIDs.contains($0)})
+        let packet=ObjectClipboard(ink:strokes(page).filter{selectedIDs.contains($0.id)},images:images,marks:[],assets:(session.annotations.imageAssets ?? [:]).filter{keys.contains($0.key)},groups:session.annotations.groups.filter{Set($0.members).isSubset(of:selectedIDs)},order:session.annotations.orderedIDs(on:session.document.index(for:page)).filter{selectedIDs.contains($0)})
         guard let data=try? JSONEncoder().encode(packet) else{return}
-        NSPasteboard.general.clearContents();NSPasteboard.general.setData(data,forType:ObjectClipboard.type)
-        if images.count==1,packet.ink.isEmpty,let source=packet.assets[images[0].asset] {NSPasteboard.general.setData(source,forType:.png)}
+        pasteboard.clearContents();pasteboard.setData(data,forType:ObjectClipboard.type)
+        if images.count==1,packet.ink.isEmpty,let source=packet.assets[images[0].asset] {pasteboard.setData(source,forType:.png)}
     }
     @objc func cut(_ sender:Any?) {guard !gesture,!session.annotationReadOnly,!session.currentFileIsReadOnly else{return};copy(sender);deleteSelected()}
     private func pasteObjects(_ packet:ObjectClipboard) {
@@ -348,7 +345,6 @@ final class ReaderCanvas: NSView {
     private var draggingMove = false
     private var originalMove: [InkStroke] = []
     private var originalImages: [PageImage] = []
-    private var originalMarks: [PageMark] = []
     private var objectResize = false
     private var objectResizeCorner = CGPoint.zero
     private var objectResizeAnchor = CGPoint.zero
@@ -457,7 +453,7 @@ final class ReaderCanvas: NSView {
     private var selectedBounds: CGRect? {
         if let selectedHighlight { return selectedHighlight.bounds }
         guard let page = selectionPage else { return nil }
-        return (strokes(page).filter { selectedIDs.contains($0.id) }.map(\.bounds)+session.images(on:page).filter{selectedIDs.contains($0.id)}.map(\.bounds)+session.annotations.marks.filter{selectedIDs.contains($0.id)}.map{$0.anchor.bounds}).reduce(nil as CGRect?) { $0?.union($1) ?? $1 }
+        return (strokes(page).filter { selectedIDs.contains($0.id) }.map(\.bounds)+session.images(on:page).filter{selectedIDs.contains($0.id)}.map(\.bounds)).reduce(nil as CGRect?) { $0?.union($1) ?? $1 }
     }
     override func mouseDown(with event: NSEvent) {
         cancelPadInkZoom()
@@ -779,7 +775,7 @@ final class ReaderCanvas: NSView {
             restoreCoalescing()
             inputTrace?.finished = ProcessInfo.processInfo.systemUptime
             inkBuilder?.finish(); inputTrace?.save(); inputTrace = nil; inkBuilder = nil; markerBuilder=nil; latestInputTimestamp = nil
-            activePage = nil; activeInkID = nil; snappedShape=nil;resizeShape=nil;shapeResize=false;dynamicEraserRadius=nil;gesture = false; draggingMove = false; originalMove = []; originalImages=[];originalMarks=[];objectResize=false; originalOutline = []; points = []
+            activePage = nil; activeInkID = nil; snappedShape=nil;resizeShape=nil;shapeResize=false;dynamicEraserRadius=nil;gesture = false; draggingMove = false; originalMove = []; originalImages=[];objectResize=false; originalOutline = []; points = []
             textStartPage = nil; reader?.updateParameters()
             if tool != .pen && tool != .marker { pdfView.needsDisplay = true }
             needsDisplay = true
@@ -803,7 +799,8 @@ final class ReaderCanvas: NSView {
         if tool == .select {reader?.selectionChanged()}
         if gesture {
             if tool == .lasso && !draggingMove && points.count >= 3 {
-                selectedIDs = session.annotations.expanded(Set(strokes(page).filter { InkGeometry.isFullyInside($0, polygon: points) }.map(\.id)+session.images(on:page).filter{image in image.corners.allSatisfy{InkGeometry.contains($0,polygon:points)}}.map(\.id)+session.annotations.marks.filter{mark in mark.anchor.page==session.document.index(for:page) && [CGPoint(x:mark.anchor.bounds.minX,y:mark.anchor.bounds.minY),CGPoint(x:mark.anchor.bounds.maxX,y:mark.anchor.bounds.maxY)].allSatisfy{InkGeometry.contains($0,polygon:points)}}.map(\.id)))
+                let enclosed=Set(strokes(page).filter{InkGeometry.isFullyInside($0,polygon:points)}.map(\.id)+session.images(on:page).filter{image in image.corners.allSatisfy{InkGeometry.contains($0,polygon:points)}}.map(\.id))
+                selectedIDs=session.annotations.movableSelection(enclosed)
                 selectionPage = selectedIDs.isEmpty ? nil : page
                 selectionOutline = selectedIDs.isEmpty ? [] : points
             }

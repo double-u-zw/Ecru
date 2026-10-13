@@ -38,6 +38,7 @@ enum PDFPagePreservation {
             return password.map { $0.withCString(run) } ?? run(nil)
         }
         defer { if let output { ecru_pdf_free(output) } }
+        if success == -1 { throw password == nil ? DocumentSessionError.passwordRequired : DocumentSessionError.incorrectPassword }
         guard success == 1 else { throw DocumentSessionError.unsupported("PDF 结构不完整、无法解密或不能可靠解析") }
         return Inspection(features: features, readingData: output.map { Data(bytes: $0, count: count) })
     }

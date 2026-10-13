@@ -10,7 +10,7 @@ focused. Run core tests, and run UI checks for window or interaction changes.
 Explain what changed, why, how it was tested and any remaining limitations.
 
 Preserve PDF compatibility identifiers, recovery data and authoritative saved
-stroke outlines. The current `google-ink-daily-v5` engine is frozen for beta.2:
+stroke outlines. The current `google-ink-daily-v5` engine remains frozen for this development round:
 do not change input filters or brush parameters as incidental UI cleanup.
 Dependency changes must identify the upstream revision and retain its licenses.
 
