@@ -62,9 +62,24 @@ struct AnnotationChange: Codable {
     /// Encoding recovery needs only the forward side, never duplicate old ink.
     var forwardOnly:AnnotationForwardChange {AnnotationForwardChange(self)}
     var estimatedBytes:Int {
-        let geometry=pages.reduce(0){sum,page in sum+(page.before+page.after).reduce(0){$0+256+$1.stroke.points.count*MemoryLayout<InkPoint>.stride+($1.stroke.outlines?.reduce(0){$0+$1.count} ?? 0)*MemoryLayout<InkPoint>.stride}}
-        let bodies=(beforeMetadata?.notes ?? [])+(afterMetadata?.notes ?? [])
-        return geometry+bodies.reduce(0){$0+$1.markdown.utf8.count}+assets.reduce(0){$0+($1.before?.count ?? 0)+($1.after?.count ?? 0)}
+        var total = 0
+        let pointBytes = MemoryLayout<InkPoint>.stride
+        for page in pages {
+            for entry in page.before + page.after {
+                total += 256 + entry.stroke.points.count * pointBytes
+                for outline in entry.stroke.outlines ?? [] {
+                    total += outline.count * pointBytes
+                }
+            }
+        }
+        for note in (beforeMetadata?.notes ?? []) + (afterMetadata?.notes ?? []) {
+            total += note.markdown.utf8.count
+        }
+        for asset in assets {
+            total += asset.before?.count ?? 0
+            total += asset.after?.count ?? 0
+        }
+        return total
     }
 }
 
