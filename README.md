@@ -36,7 +36,7 @@
 
 激光是临时页面像素，不保存到 PDF，不创建批注、撤销记录或恢复草稿，不改变文档修改状态。录屏能捕获它，PadInk 继续使用现有视频链路。工具切换、页面 / 文档切换、窗口失焦和关闭清理临时内容；原有无箭头 Pencil 体验保留。
 
-本地专项覆盖临时数据隔离、导航误判、参数、渐隐、输入、缩放、旋转 / 裁剪、窗口独立和 ScreenCaptureKit 窗口像素；也保留原有图片、图形、保存及恢复回归。双架构候选的实际验证记录见 [验证说明](docs/Validation.md)。本机 arm64 / Rosetta 测试不代替真实 Intel 输入、Pencil 跟手或 PadInk 端到端视频延迟的真人验收。历史 Beta 3、Beta 2 和全部已发布标签与安装包保留。
+本地专项覆盖临时数据隔离、导航误判、参数、渐隐、输入、缩放、旋转 / 裁剪、窗口独立和 ScreenCaptureKit 窗口像素；也保留原有图片、图形、保存及恢复回归。本次 [Apple Silicon / Intel 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38372590353) 均通过，发布资产上传后已下载核对；完整范围见 [验证说明](docs/Validation.md)。本机 arm64 / Rosetta 测试不代替真实 Intel 输入、Pencil 跟手或 PadInk 端到端视频延迟的真人验收。历史 Beta 3、Beta 2 和全部已发布标签与安装包保留。
 
 ## 图片与 PDF 兼容性
 

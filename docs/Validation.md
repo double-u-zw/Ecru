@@ -21,11 +21,36 @@ at the minimum window width. The Google Ink recipe and AdaptivePositionModel are
   suites remain in use. Separate frozen-checkout results and exact DMG evidence
   are recorded in `readiness.json` and `verification.json` beside local packages.
 
-No Beta 4 GitHub CI or publication result is claimed by preparation. Its native
-Apple Silicon / Intel CI must run on the matching public source before publication.
-Local Rosetta execution does not replace actual Intel input or physical Pencil/video
-latency measurement. macOS 13 hardware, mixed DPI, large PDFs and long-duration
-usage remain human acceptance items.
+## Native CI and published Beta 4
+
+The [Beta 4 native CI run](https://github.com/double-u-zw/Ecru/actions/runs/38372590353)
+passed on macOS 14 Apple Silicon and macOS 15 Intel, including builds, complete
+public core regressions, 72 laser checks, 78 image/fill checks and two independent
+PDF image appearances per architecture, followed by DMG packaging. Both CI
+artifacts were downloaded and checked for checksums, architecture, source revision,
+Build 20, signatures, native model receipt and complete licenses.
+
+The [published Beta 4 release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.4)
+pins source `f8e66f5dc66af0044e69b8404ae7cad02dd9f5de`; both distributed Apps embed
+revision `f8e66f5`. All five uploaded assets were downloaded and compared byte for
+byte with the verified local candidates before publication. Historical release
+content, asset identities/digests, and annotated/peeled tag refs remain unchanged.
+Distributed DMG SHA-256 values:
+
+- arm64: `dafc96ff3a2670aade7485cc4c344ba03af2c5cd5200b3588d38cbecc12905d4`
+- x86_64: `b1e538aa5cedbfc41e3601986ec9382d01531e00e5f457bccb138d3760901e20`
+
+An initial macOS 14 attempt exposed a PDFKit exception when a test fixture tried
+to serialize a Swift dictionary under an annotation action key. The fixture now
+writes standard PDF bytes directly; production rendering and document code were
+unchanged by that correction. The final matching-source CI passed on both runners.
+
+Local window suites passed 69 checks per architecture (Intel via Rosetta), with
+218 complex PDF cases, 32 independent structure checks and 64 hidden compatibility
+window checks per architecture. Local Rosetta execution does not replace actual
+Intel input or physical Pencil/video latency measurement. macOS 13 hardware,
+mixed DPI, large PDFs and long-duration usage remain human acceptance items.
+Subsequent documentation commits do not alter the release source or assets.
 
 `Scripts/verify-release.py output/releases/0.5.0-beta.4` checks both checksums,
 read-only mounted DMGs, complete App inventories, architecture, deployment target,
