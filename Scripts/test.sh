@@ -15,7 +15,7 @@ if [[ "${1:-}" == "--ui" ]]; then
   task_bundle="$PWD/.build/apps/PublicWindow-$ecru_arch.app"
   trap 'rm -rf "$task_bundle"' EXIT
   mkdir -p "$task_bundle/Contents/MacOS" "$task_bundle/Contents/Resources"
-  xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" -O -D ECRU_UI_TESTS Sources/*.swift Tests/PublicWindowChecks.swift -o "$task_bundle/Contents/MacOS/PublicWindow" -framework AppKit -framework PDFKit -framework UniformTypeIdentifiers -framework WebKit
+  xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" -O -whole-module-optimization -D ECRU_UI_TESTS Sources/*.swift Tests/PublicWindowChecks.swift -o "$task_bundle/Contents/MacOS/PublicWindow" -framework AppKit -framework PDFKit -framework UniformTypeIdentifiers -framework WebKit
   cp -R Resources/Preview "$task_bundle/Contents/Resources/"
   python3 - "$task_bundle/Contents/Info.plist" <<'PY'
 import plistlib,sys,pathlib
@@ -42,4 +42,5 @@ for task_test in Ink Storage Annotation InkNatural InkDamage; do
 done
 node Tests/PreviewTests.js
 zsh Scripts/test-image-objects.sh
+zsh Scripts/test-laser.sh
 print "Public core regression passed ($ecru_arch)."

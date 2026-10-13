@@ -46,6 +46,36 @@ void walk(QPDF& q, const std::function<void(H)>& fn) {
   };
   for(auto o:q.getAllObjects()) visit(o,0);
 }
+// Common slide generators embed viewer-local navigation commands. Ecru's
+// input router never executes PDFActionNamed, but these inert commands can be
+// preserved in the original graph without disabling all annotation editing.
+bool local_navigation(H o) {
+  if (!o.getKey("/S").isNameAndEquals("/Named")) return false;
+  auto name = o.getKey("/N");
+  for (auto allowed : {"/FirstPage", "/LastPage", "/NextPage", "/PrevPage",
+                       "/Find", "/GoBack", "/GoForward", "/GoToPage"})
+    if (name.isNameAndEquals(allowed)) return true;
+  return false;
+}
+bool navigation_action(H o, int depth = 0) {
+  if (depth > 16 || !o.isDictionary() || o.hasKey("/JS") || o.hasKey("/JavaScript") ||
+      !(o.getKey("/S").isNameAndEquals("/GoTo") || local_navigation(o))) return false;
+  auto next = o.getKey("/Next");
+  if (next.isNull()) return true;
+  if (!next.isArray()) return navigation_action(next, depth + 1);
+  for (int i = 0; i < next.getArrayNItems(); ++i)
+    if (!navigation_action(next.getArrayItem(i), depth + 1)) return false;
+  return true;
+}
+bool manual_action(H o) {
+  return navigation_action(o) || (o.isDictionary() && o.getKey("/S").isNameAndEquals("/URI") &&
+      o.getKey("/Next").isNull() && !o.hasKey("/JS") && !o.hasKey("/JavaScript"));
+}
+bool navigation_triggers(H o) {
+  if (!o.isDictionary()) return false;
+  for (auto key : o.getKeys()) if (!navigation_action(o.getKey(key))) return false;
+  return true;
+}
 uint32_t features(QPDF& q) {
   uint32_t f = q.isEncrypted() ? 1 : 0;
   auto root = q.getRoot();
@@ -54,22 +84,22 @@ uint32_t features(QPDF& q) {
   if (root.hasKey("/Collection")) f |= 64;
   if (root.hasKey("/Perms")) f |= 128;
   auto opening = root.getKey("/OpenAction");
-  if (opening.isDictionary() && !opening.getKey("/S").isNameAndEquals("/GoTo")) f |= 32;
+  if (opening.isDictionary() && !navigation_action(opening)) f |= 32;
   walk(q, [&](H o) {
     if (o.getKey("/FT").isNameAndEquals("/Sig") || o.getKey("/Type").isNameAndEquals("/Sig") || o.hasKey("/ByteRange")) f |= 2;
     if (o.hasKey("/XFA")) f |= 8;
     if (o.hasKey("/EmbeddedFiles") || o.hasKey("/EF") || o.hasKey("/AF") || o.getKey("/Subtype").isNameAndEquals("/FileAttachment")) f |= 16;
     auto action = o.getKey("/S"); auto subtype = o.getKey("/Subtype");
-    if (o.hasKey("/JavaScript") || o.hasKey("/JS") || o.hasKey("/AA") ||
+    if (o.hasKey("/JavaScript") || o.hasKey("/JS") || (o.hasKey("/AA") && !navigation_triggers(o.getKey("/AA"))) ||
         action.isNameAndEquals("/JavaScript") || action.isNameAndEquals("/Launch") ||
         action.isNameAndEquals("/GoToR") || action.isNameAndEquals("/SubmitForm") ||
         action.isNameAndEquals("/ImportData") || action.isNameAndEquals("/Rendition") ||
         action.isNameAndEquals("/GoToE") || action.isNameAndEquals("/Thread") ||
         action.isNameAndEquals("/Sound") || action.isNameAndEquals("/Movie") ||
-        action.isNameAndEquals("/Hide") || action.isNameAndEquals("/Named") ||
+        action.isNameAndEquals("/Hide") || (action.isNameAndEquals("/Named") && !local_navigation(o)) ||
         action.isNameAndEquals("/ResetForm") || action.isNameAndEquals("/SetOCGState") ||
         action.isNameAndEquals("/Trans") || action.isNameAndEquals("/GoTo3DView") ||
-        (o.getKey("/Type").isNameAndEquals("/Action") && !action.isNameAndEquals("/GoTo") && !action.isNameAndEquals("/URI")) ||
+        (o.getKey("/Type").isNameAndEquals("/Action") && !action.isNameAndEquals("/GoTo") && !action.isNameAndEquals("/URI") && !local_navigation(o)) ||
         subtype.isNameAndEquals("/RichMedia") || subtype.isNameAndEquals("/Movie") ||
         subtype.isNameAndEquals("/Sound") || subtype.isNameAndEquals("/Screen") || subtype.isNameAndEquals("/3D")) f |= 32;
   });
@@ -131,15 +161,18 @@ extern "C" int ecru_pdf_inspect(const uint8_t* input, size_t size, const char* p
   *view = nullptr; *view_size = 0; *flags = 0;
   try {
     QPDF q; load(q,input,size,password); *flags = features(q);
+    bool inert_navigation = false;
+    walk(q, [&](H o) { if (o.hasKey("/AA") || o.getKey("/OpenAction").isDictionary()) inert_navigation = true; });
     // Inert display graph only. The original bytes remain the immutable save base.
     // Never execute actions, including automatically triggered document/field actions.
     walk(q, [&](H o) {
+      bool keep_manual_action = manual_action(o);
+      if (o.hasKey("/A") && !manual_action(o.getKey("/A"))) o.removeKey("/A");
       for (auto k : {"/AA", "/OpenAction", "/JS", "/JavaScript", "/XFA", "/RichMediaContent", "/RichMediaSettings", "/Movie", "/Sound", "/3DD", "/3DA"}) o.removeKey(k);
       // Keep /S in graphics, structure and file dictionaries; only actions use /Type /Action.
-      if (o.getKey("/Type").isNameAndEquals("/Action") || o.hasKey("/JS")) { o.removeKey("/S"); o.removeKey("/Next"); }
-      o.removeKey("/A");
+      if (!keep_manual_action && o.getKey("/Type").isNameAndEquals("/Action")) { o.removeKey("/S"); o.removeKey("/Next"); }
     });
-    if ((*flags & (1|8|32|64|256)) != 0) {
+    if ((*flags & (1|8|32|64|256)) != 0 || inert_navigation) {
       // Encryption is only removed from this transient reading view, never exported.
       QPDFWriter w(q); w.setOutputMemory(); w.setPreserveEncryption(false); w.setStreamDataMode(qpdf_s_preserve); w.write();
       auto b=w.getBufferSharedPointer(); *view=static_cast<uint8_t*>(std::malloc(b->getSize())); require(*view != nullptr);

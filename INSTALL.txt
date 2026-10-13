@@ -1,4 +1,4 @@
-Ecru 0.5.0-beta.3 (19)
+Ecru 0.5.0-beta.4 (20)
 macOS 13 Ventura or later
 Apple Silicon (M series): choose the -arm64.dmg.
 Intel: choose the -x86_64.dmg.
@@ -11,6 +11,7 @@ Apple instructions: https://support.apple.com/en-us/102445
 Do not disable Gatekeeper or System Integrity Protection.
 
 打开 PDF ⌘O · 保存 ⌘S · 另存为 ⇧⌘S · 撤销 ⌘Z · 重做 ⇧⌘Z
+激光笔 ⌘7 · 临时轨迹 / 光点不写入 PDF ·
 粘贴截图 ⌘V · 选择图形后点“填充” · 图片调整完成点“完成”恢复原工具
 Guide: https://github.com/double-u-zw/Ecru
 Feedback: https://github.com/double-u-zw/Ecru/issues

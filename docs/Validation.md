@@ -1,3 +1,41 @@
+# Beta 4 validation scope
+
+Candidate identity: **0.5.0-beta.4 (20)**. Adds independent temporary laser rendering
+and local-navigation PDF compatibility fixes to the Beta 3 feature baseline. Seven
+tools retain the original shortcuts, with Command-7 for laser and compact spacing
+at the minimum window width. The Google Ink recipe and AdaptivePositionModel are unchanged.
+
+## Laser and compatibility feature checks
+
+- 72 self-contained synthetic laser checks, including grouped idle/fade timing,
+  mouse and simulated PadInk Pencil input, 15–600% coordinate conversion, separate
+  window state, no PDF/history/recovery changes, settings, protected documents,
+  safe navigation, unknown/chained actions and sample budgets.
+- 24 development-window checks: Command-7, settings, 820/1160 pt laser layout,
+  50–400% zoom, rotation/crop and scroll, no repaint of saved page ink, native fade
+  timer, no stale backing pixels and ScreenCaptureKit window-pixel capture.
+- The release public core suite includes laser tests; the public window suite
+  additionally checks all seven tools at 820/1160/1440 pt in light/dark appearance,
+  the laser settings panel, independent input, unchanged PDF/history and timer cleanup.
+- Existing image/fill, saved-PDF, conflict/recovery and complex-document regression
+  suites remain in use. Separate frozen-checkout results and exact DMG evidence
+  are recorded in `readiness.json` and `verification.json` beside local packages.
+
+No Beta 4 GitHub CI or publication result is claimed by preparation. Its native
+Apple Silicon / Intel CI must run on the matching public source before publication.
+Local Rosetta execution does not replace actual Intel input or physical Pencil/video
+latency measurement. macOS 13 hardware, mixed DPI, large PDFs and long-duration
+usage remain human acceptance items.
+
+`Scripts/verify-release.py output/releases/0.5.0-beta.4` checks both checksums,
+read-only mounted DMGs, complete App inventories, architecture, deployment target,
+system-only libraries, clean source identity, native recipe, licenses and signatures.
+Verification does not install/register candidates or edit user PDFs or drafts.
+
+---
+
+## Historical Beta 3 validation
+
 # Beta 3 validation results
 
 Candidate identity: **0.5.0-beta.3 (19)**. The application functionality is the accepted

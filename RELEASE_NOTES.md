@@ -1,86 +1,49 @@
-# Ecru 0.5.0-beta.3（Build 19）
+# Ecru 0.5.0-beta.4（Build 20）
 
-这次更新让 PDF 不仅能手写，还能直接插入截图、编辑图片和修改已画好的图形。所有新增对象都保存在 PDF 中，重新打开后仍可继续编辑。
+这次更新新增原生激光笔，并修正普通课件被导航动作误判为只读的问题。原有手写、图形填充、图片批注、文字批注和保存恢复功能保留。
 
-## 截图与图片：粘贴后就能调整
+## 激光笔：指示页面，停笔后自然消失
 
-- 把系统截图复制到剪贴板，回到 PDF 页面按 **⌘V** 即可插入。也支持从 Finder 或系统截图缩略图拖入，**编辑 → 插入图片**，以及页面右键 **粘贴图片**。
-- 支持 PNG、JPEG、HEIC/HEIF 和常见剪贴板图片数据；保留透明通道。不会从剪贴板网络 URL 自动下载图片。
-- 普通粘贴放在当前页面可见区域中央；拖入和右键粘贴使用对应页面的位置。图片按比例适配可见区域，插入后自动选中。
-- **拖动移动，拖角点等比例缩放。** 选中后的“图片”菜单还提供矩形裁剪、重置裁剪、90° 旋转、复制、剪切、删除、前后层级及位置锁定。
-- **裁剪是非破坏式的。** 原图仍保留在 PDF 内，可重置裁剪；反复移动、缩放、裁剪和保存不会重新降低源图分辨率。
+工具栏顺序为 **选择、笔、橡皮、文字高亮、自由荧光笔、圈选、激光笔**。激光笔独立放在最后，快捷键 **⌘7**；原有 ⌘1–⌘6 保持。
 
-### 调整完，继续在图片上写
+- **激光轨迹 / 激光光点**：用鼠标按住拖动，或通过 PadInk 用 Apple Pencil 接触页面。
+- 默认红色、约 **2 秒**。连续指示时保留完整轨迹；停笔后短暂停留，最后约 0.4 秒整体柔和淡出。连续模糊光晕与细亮芯一起淡去。
+- 点击“轨迹 · 设置”调整颜色、**1–12 屏幕 pt** 粗细、发光强度及 **0.3–10 秒** 消失时间。
+- 位置锚定 PDF 页面坐标，跟随滚动、缩放、旋转与裁剪；视觉粗细按屏幕点保持。
+- 工具、页面、文档切换，窗口失焦和关闭时清理临时内容；不同窗口的轨迹互不混用。
 
-- 如果插入前使用笔工具，调整后点 **完成**，就会回到此前的笔色、笔宽和压感设置；完成点击不会多画一笔。
-- 在图片上直接手写，或用自由荧光笔标记。橡皮只擦除 Ecru 笔迹，不会擦坏图片。
-- 笔工具始终优先书写；进入 **选择 / 圈选** 才会选择和移动图片。锁定位置后仍可在上面写字。
-- 图片与笔迹默认独立。想一起移动时，圈选图片、笔迹和图形后 **组合**，即可整体移动、等比例缩放或旋转；也可随时取消组合。
-- 新图片默认放在已有手写批注下方，后续书写显示在图片上方；需要时可手动调整层级。
-- **Esc** 取消当前选择但不删除图片；裁剪过程中按 Esc 取消这次裁剪。
+激光仅为临时页面显示，**不写入 PDF、不创建批注、不产生撤销重做事务或恢复记录，也不使文档变成未保存状态**。只读 PDF 也可使用激光，原写入保护继续有效。
 
-## 已画好的图形：边框和填充分开修改
+激光采用独立轻量逻辑，未改 Google Ink 手写算法。仍保留 Pencil 无箭头、无瞄准光标的交互。激光是原生窗口像素，可被普通屏幕录制捕获，并进入 PadInk 现有视频链路。
 
-使用选择工具点击图形，或圈选多个图形，点击 **边框 / 线宽 / 填充** 即可编辑。
+## 更多普通课件可编辑
 
-填充提供三种明确模式：
+常见 PDF 课件带有翻页、返回、查找等本地导航命令。此前这些 `/Named` 命令会让整份 PDF 进入只读保护；现在对明确识别的本地导航放行。
 
-| 模式 | 行为 |
-| --- | --- |
-| 无填充 | 保留边框，内部透明 |
-| 跟随边框 | 跟随这一个图形自己的边框颜色 |
-| 自定义颜色 | 填充颜色与边框独立 |
+支持的命令为 `/FirstPage`、`/LastPage`、`/NextPage`、`/PrevPage`、`/Find`、`/GoBack`、`/GoForward`、`/GoToPage`。空 `/AA` 事件表和只含本地导航的事件也不会单独禁用批注。自动触发器在内存阅读视图中移除，安全的手动链接保留；保存继续保留原 PDF 对象图、原导航动作及关系。
 
-填充面板复用常用色、柔和色、最近使用色和自定义颜色；拖动不透明度滑块会实时预览。支持多选统一修改、撤销、重做和保存重开。
+未知命令、脚本链、自动外部 URI、加密、签名和结构异常仍受保护。普通 AcroForm、附件及符合既有条件的静态批注副本沿用原兼容能力；这不是对任意 PDF 的无条件编辑承诺。
 
-修改笔工具颜色不会改变已有图形。编辑选中图形也不会改动以后画图的默认样式；需要沿用时，可明确选择 **对象 → 将当前图形样式设为默认**。历史图形保留原来的实际外观。
+## 书写与编辑能力保留
 
-## 保存后的 PDF：看得见，也能继续编辑
+Google Ink 日常笔、真实压力、图形规整与恢复手绘、倾斜橡皮自动回笔、文字高亮、自由荧光笔和离线 Markdown / 数学公式预览保持。图片仍可粘贴、拖入、移动、缩放、非破坏裁剪、旋转、锁定及与笔迹组合；已有图形的边框和填充独立编辑。保存、另存为、撤销重做、外部冲突及草稿恢复保持。
 
-图片使用标准 PDF 可显示结构，并在 PDF 内保存继续编辑所需的源图片、裁剪、旋转和组合信息。
+新增七工具在窄窗口中使用紧凑间距，保留笔参数入口。激光不提高 PDF 批注清单版本；历史文档保持现有兼容规则。图片、填充模式和组合数据仍需 Beta 3 或更新版本继续编辑。
 
-- **删除原截图后，PDF 里的图片仍完整显示。** 文件不依赖原截图路径或临时缓存。
-- macOS 预览等标准阅读器能看到图片、笔迹和图形；Ecru 重开后仍可移动、裁剪、旋转、删除及继续书写。
-- 不把整张页面变成图片，保留原 PDF 的可选文字、字体和未修改资源。
-- 沿用撤销重做、未保存草稿恢复、外部修改冲突检测和安全保存保护。
-- Beta 1 / Beta 2 的历史文档仍可读取。含新图片、填充模式或组合的数据需要 **Beta 3** 继续编辑，旧版本可能进入只读保护。
+## 安装包与验证范围
 
-## 复杂 PDF 的分级保护
+- **Apple Silicon / M 系列：** `Ecru-0.5.0-beta.4-arm64.dmg`
+- **Intel：** `Ecru-0.5.0-beta.4-x86_64.dmg`
+- 两份安装包功能相同，最低 **macOS 13**；下载校验使用同一 Release 的 `SHA256SUMS.txt`。
+- 采用 **ad-hoc 签名，未经过 Developer ID 签名或 Apple 公证**。首次运行按安装说明使用系统的单 App 放行流程。
+- 验证使用合成文件和隔离恢复数据；实际两架构检查记录见随包验证记录和 [验证说明](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.4/docs/Validation.md)。
 
-- 密码 PDF 可以解锁阅读；加密和签名 PDF 保持只读，不开放写回。
-- 普通 AcroForm 表单和附件文档可在保留原结构的前提下保存 Ecru 批注，并检查结构完整性。
-- XFA、活动内容、Portfolio 等特殊文件采用受保护的静态阅读；符合条件时，可明确确认结构损失后创建静态批注副本。加密和签名文件不开放这种编辑副本。
+物理 Apple Pencil 跟手、PadInk 到 iPad 的真实视频延迟、真实 Intel 输入、macOS 13 实机、多显示器 / 混合 DPI 和长期大 PDF 负载仍需真人验收。合成事件、位图耗时和本机 Rosetta 检查不代替这些测量。
 
-详见 [PDF 兼容性说明](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.3/docs/PDFCompatibility.md) 与 [图片和图形编辑说明](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.3/docs/EditableObjects.md)。
+历史 Beta 3、Beta 2、Beta 1 的标签、Release 与安装包保持不变。没有自动更新；本版本安装不迁移 Ecru Dev 的设置或恢复数据。OCR、加密写回、签名验证、动态 XFA 编辑仍不提供。
 
-## 原有书写功能保留
-
-Google Ink、真实压感、连续笔宽、停笔图形规整和恢复手绘、倾斜橡皮自动回笔、文字高亮重复取消、自由荧光笔、文字批注及离线 Markdown / 数学公式预览均保留。六工具布局不变，没有新增常驻图片工具。本次没有重新设计手写算法，笔迹 recipe 仍为 `google-ink-daily-v5`。
-
-## 下载与验证
-
-选择适合芯片的安装包：
-
-- **Apple Silicon / M 系列：** `Ecru-0.5.0-beta.3-arm64.dmg`
-- **Intel：** `Ecru-0.5.0-beta.3-x86_64.dmg`
-
-两份安装包功能相同，均要求 **macOS 13 或更新版本**。从本 Release 下载 `SHA256SUMS.txt` 后，可运行 `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` 校验下载。历史 Beta 2、历史标签与安装包继续保留。
-
-[本次原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38276748166) 已通过 **macOS 14 Apple Silicon** 和 **macOS 15 Intel** 的构建、核心回归、图片 / 填充 78 项及安装包生成。对应源码为 `9231496b9dadc5ca5e5341fdcb3795246ce9bf08`，发布标签标记同一冻结源码。
-
-本地另外通过两个架构各 59 项原生窗口检查、复杂 PDF 218 项、独立结构 32 项和原生兼容 64 项；已检查两轮保存重开、原图片删除后的显示、PNG alpha、标准 PDF 图片资源和 macOS 预览显示。两份发布 DMG 只读挂载后，完整 App 文件、架构、源码身份、签名和许可证均已验证。
-
-## 当前限制
-
-- 仍为 Beta。采用 **ad-hoc 签名，尚未经过 Developer ID 签名或 Apple 公证**；首次运行如被 macOS 拦截，按安装说明使用系统的单 App 放行流程。
-- 图片转换为完整像素的 **8-bit SDR sRGB PNG**，保留 alpha；HDR 增益图和超出 SDR 的亮度不保留。
-- 单图最多 **4000 万像素**、归一化 PNG **24 MiB**，整份可编辑批注数据 **64 MiB**；超限会拒绝插入并保留现有内容。
-- 当前采用矩形裁剪、90° 旋转、同页组合，一次文件插入一张图片。跨软件复制提供原图；Ecru 内复制保留可编辑裁剪、旋转和组关系。
-- 真实 Intel 输入设备、macOS 13 实机、真实 HDR 来源、混合 DPI 多屏和长期手写负载仍需更多反馈。CI 和合成事件不代表真实设备手感。
-- 没有 OCR，也没有自动更新。
-
-反馈时请附版本、macOS、芯片、输入设备和复现步骤：[提交问题](https://github.com/double-u-zw/Ecru/issues/new/choose)。
+功能详情：[激光笔](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.4/docs/LaserPointer.md)、[PDF 兼容性](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.4/docs/PDFCompatibility.md)。反馈请附版本、macOS、芯片、输入设备和复现步骤：[提交问题](https://github.com/double-u-zw/Ecru/issues/new/choose)。
 
 ---
 
-**Editable images and independent shape fills.** Paste screenshots into PDF pages, move and proportionally resize them, crop non-destructively, rotate, lock or group them with ink. Write over images and return to your previous tool when adjustments finish. Images and editable geometry are embedded in the PDF, so they remain visible in standard readers and editable in Ecru after reopening. Shape borders and fills can be changed independently. Native Apple Silicon and Intel CI passed; separate DMGs require macOS 13+. This Beta is ad-hoc signed, not Apple-notarized; images are normalized to SDR sRGB. Beta 2 and historical releases remain unchanged.
+**Native temporary laser trails and dots.** Use Command-7 with a mouse or PadInk + Apple Pencil. Soft Gaussian light stays intact briefly and fades as a whole after contact ends; color, width, glow and lifetime are adjustable. Laser pixels are captured by screen recording but never enter the PDF, undo history or draft recovery. Common local navigation actions no longer make ordinary slide PDFs read-only. Google Ink and existing editable images, shapes and safe-save behavior remain unchanged. Separate Apple Silicon and Intel DMGs require macOS 13+. This Beta is ad-hoc signed, not Apple-notarized; historical releases remain unchanged.

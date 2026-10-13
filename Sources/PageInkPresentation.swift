@@ -19,7 +19,7 @@ final class PageInkPresentation: NSObject, PDFPageOverlayViewProvider {
         if views[ObjectIdentifier(page)] === overlayView { views.removeValue(forKey: ObjectIdentifier(page)) }
     }
     func disconnect() { canvas = nil; views.removeAll() }
-    func invalidateAll() { for view in views.values { view.needsDisplay = true } }
+    func invalidateAll() { for view in views.values { view.needsDisplay = true; view.laserView.invalidateLaser() } }
     func invalidate(_ page: PDFPage, bounds: CGRect, change:InkChange?=nil) {
         guard let view = views[ObjectIdentifier(page)], let pdf = canvas?.reader?.pdfView else { return }
         if let change {view.geometryChanged(change)}
@@ -32,6 +32,7 @@ final class PageInkPresentation: NSObject, PDFPageOverlayViewProvider {
 /// atomically with page content. AppKit chooses backing resolution after zoom.
 final class PageInkView: NSView {
     let page: PDFPage
+    lazy var laserView = LaserPageView(page:page,presentation:presentation!)
     weak var presentation: PageInkPresentation?
     private(set) var drawCount = 0
     private var paths:[UUID:InkPathCache]=[:]
@@ -50,8 +51,10 @@ final class PageInkView: NSView {
         self.page = page; self.presentation = presentation
         super.init(frame: .zero)
         wantsLayer = true; layer?.masksToBounds = true
+        addSubview(laserView);laserView.frame=bounds
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func layout() { super.layout(); laserView.frame=bounds;laserView.invalidateLaser() }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
         guard let canvas = presentation?.canvas, let reader = canvas.reader else { return }

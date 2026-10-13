@@ -137,7 +137,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         if !session.annotationWarnings.isEmpty { DispatchQueue.main.async { [weak self] in guard let self, !self.disconnected else { return }; self.openNoteSearch() } }
         notifications.append(NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: pdfView, queue: .main) { [weak self] _ in
             guard let self, !self.rebinding else { return }
-            self.closeParameters(); self.canvas.clearSelection(); self.pdfView.clearSelection(); self.refresh(); self.positionNoteUI(); self.rememberPosition()
+            if self.canvas.tool == .laser {self.canvas.finishInterruptedInput()}; self.closeParameters(); self.canvas.clearSelection(); self.pdfView.clearSelection(); self.refresh(); self.positionNoteUI(); self.rememberPosition()
         })
         notifications.append(NotificationCenter.default.addObserver(forName: .PDFViewScaleChanged, object: pdfView, queue: .main) { [weak self] _ in self?.refresh(); self?.canvas.presentation.invalidateAll(); self?.canvas.needsDisplay = true; self?.positionNoteUI() })
         if let clip=pdfView.documentView?.enclosingScrollView?.contentView {
@@ -318,7 +318,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         defer {arrangingSidebar=false}
         body.frame = CGRect(x: 0, y: 0, width: w, height: h-toolHeight)
         var x: CGFloat = 12
-        let widths: [CGFloat] = [68,54,100,114,68,68]
+        let widths: [CGFloat] = w<1000 ? [60,50,84,98,58,58,72]:[68,54,100,114,68,68,78]
         for b in toolButtons {
             let width=widths[b.tag]
             b.frame = CGRect(x: x, y: 5, width: width, height: 30); x += width+2
@@ -392,7 +392,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         back.isEnabled = historyIndex > 0; forward.isEnabled = historyIndex >= 0 && historyIndex < navigationHistory.count-1
         undoButton.isEnabled = session.canUndo; redoButton.isEnabled = session.canRedo
         for b in toolButtons {
-            b.isEnabled = !session.annotationReadOnly || b.tag == ReaderTool.select.rawValue
+            b.isEnabled = !session.annotationReadOnly || b.tag == ReaderTool.select.rawValue || b.tag == ReaderTool.laser.rawValue
             let selected = b.tag == canvas.tool.rawValue
             b.state = selected ? .on : .off
             b.showsBorderOnlyWhileMouseInside = !selected
@@ -454,6 +454,11 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             _ = parameterButton("添加正文", action: #selector(addNoteFromSelection))
             _ = parameterButton(canvas.selectedHighlight != nil ? "删除高亮" : "删除所选", action: #selector(deleteSelection)); return
         }
+        if canvas.tool == .laser {
+            let b=parameterButton(canvas.laser.form == .trail ? "轨迹 · 设置":"光点 · 设置",action:#selector(showLaserSettings(_:)))
+            b.toolTip="临时激光：颜色、粗细、发光强度和消失时间；不保存到 PDF"
+            return
+        }
         if [.pen,.textHighlight,.marker].contains(canvas.tool) {
             let c = canvas.colors[canvas.tool]!
             let label = colorName(c)
@@ -474,8 +479,13 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         }?.1 ?? "自选颜色"
     }
     @objc func changeTool(_ sender: NSButton) {
-        if session.annotationReadOnly && sender.tag != ReaderTool.select.rawValue { showSaveState(); return }
-        guard !canvas.gesture else { return }; noteCard.dismiss(); selectionAdd.isHidden=true; closeParameters(); canvas.setTool(ReaderTool(rawValue: sender.tag)!); refresh(); window?.makeFirstResponder(canvas) }
+        if session.annotationReadOnly && sender.tag != ReaderTool.select.rawValue && sender.tag != ReaderTool.laser.rawValue { showSaveState(); return }
+        canvas.finishInterruptedInput(); noteCard.dismiss(); selectionAdd.isHidden=true; closeParameters(); canvas.setTool(ReaderTool(rawValue: sender.tag)!); refresh(); window?.makeFirstResponder(canvas) }
+    @objc private func showLaserSettings(_ sender:NSButton) {
+        closeParameters();parameterPopover.contentViewController=LaserParameterPanel(reader:self)
+        parameterPopover.behavior = .semitransient
+        parameterPopover.show(relativeTo:sender.bounds,of:sender,preferredEdge:.minY)
+    }
     func closeParameters() { canvas.finishShapeStyleEditing();parameterPopover.close() }
     private func showWritingPanel(_ sender:NSButton,colors:Bool,fill:Bool=false) {
         closeParameters();let content=WritingParameterPanel(reader:self,colors:colors,fill:fill)
@@ -496,7 +506,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             let index = pdfView.currentPage.map { pdfView.document?.index(for: $0) ?? 0 } ?? 0
             let point = pdfView.currentDestination?.point ?? CGPoint.zero
             let scale = pdfView.scaleFactor; let auto = pdfView.autoScales
-            closeParameters(); noteCard.dismiss(); rebinding = true; canvas.clearSelection(); pdfView.document = session.document
+            if canvas.tool == .laser {canvas.finishInterruptedInput()}; closeParameters(); noteCard.dismiss(); rebinding = true; canvas.clearSelection(); pdfView.document = session.document
             pdfView.autoScales = auto; if !auto { pdfView.scaleFactor = scale }
             if let page = session.document.page(at: min(index,session.document.pageCount-1)) { pdfView.go(to: PDFDestination(page: page, at: point)) }
             thumbnails.pdfView = pdfView; buildOutline(); rebinding = false
@@ -886,7 +896,9 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         pdfView.go(to:PDFDestination(page:page,at:CGPoint(x:value["x"] as? Double ?? 0,y:value["y"] as? Double ?? 0))); refresh()
     }
     // Used by the native UI integration runner, exercising the same controls/events.
-    func selectTool(_ tool:ReaderTool) { toolButtons.first(where:{$0.tag == tool.rawValue})?.performClick(nil) }
+    func selectTool(_ tool:ReaderTool) {
+        let sender=NSButton();sender.tag=tool.rawValue;changeTool(sender)
+    }
     func testSelectTool(_ tool:ReaderTool) { selectTool(tool) }
     func testSearch(_ query:String) { searchScope.selectedSegment=0; openSearch(); searchField.stringValue = query; performSearch() }
     func testMatch(_ index:Int) { activateMatch(at:index) }
@@ -1015,7 +1027,7 @@ private final class WritingParameterPanel: NSViewController {
                 if editingShape,Set(canvas.selectedShapes.map{$0.shape!.effectiveFillMode}).count>1 {label("多选填充模式不同；修改将统一应用")}
             }
         } else {
-            label(editingShape ? "图形边框宽度":tool == .eraser ? "橡皮直径":"基础笔宽")
+            label(editingShape ? "图形边框宽度":tool == .eraser ? "橡皮直径":tool == .laser ? "激光粗细（屏幕 pt）":"基础笔宽")
             let width=canvas.selectedShapes.first?.width ?? (tool == .eraser ? canvas.eraserRadius*2:canvas.widths[tool] ?? 1.6)
             preview.width=width;preview.color=canvas.colors[tool] ?? .labelColor;stack.addArrangedSubview(preview)
             preview.widthAnchor.constraint(equalToConstant:232).isActive=true;preview.heightAnchor.constraint(equalToConstant:32).isActive=true
@@ -1100,6 +1112,53 @@ private final class WritingParameterPanel: NSViewController {
             }
         default:break
         };canvas.rememberWritingPreferences();reader?.updateParameters()
+    }
+}
+private final class LaserParameterPanel:NSViewController {
+    weak var reader:ReaderWindow?
+    let stack=NSStackView()
+    init(reader:ReaderWindow) {self.reader=reader;super.init(nibName:nil,bundle:nil)}
+    required init?(coder:NSCoder) {fatalError()}
+    override func loadView() {
+        stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=10
+        stack.edgeInsets=NSEdgeInsets(top:14,left:14,bottom:14,right:14);view=stack
+        guard let canvas=reader?.canvas else{return}
+        let title=NSTextField(labelWithString:"激光笔");title.font = .systemFont(ofSize:13,weight:.semibold);stack.addArrangedSubview(title)
+        let form=NSSegmentedControl(labels:["激光轨迹","激光光点"],trackingMode:.selectOne,target:self,action:#selector(formChanged(_:)))
+        form.selectedSegment=canvas.laser.form.rawValue;form.setAccessibilityLabel("激光显示形式");stack.addArrangedSubview(form)
+        let well=NSColorWell();well.color=canvas.colors[.laser]!;well.target=self;well.action=#selector(colorChanged(_:));well.setAccessibilityLabel("激光颜色")
+        well.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(well)
+        let palette=NSStackView();palette.spacing=8
+        for (index,color) in [NSColor.systemRed,.systemGreen,.systemBlue,.systemOrange,.systemPurple].enumerated() {
+            let b=NSButton(image:NSImage(size:CGSize(width:28,height:24),flipped:false){_ in color.setFill();NSBezierPath(ovalIn:CGRect(x:4,y:2,width:20,height:20)).fill();return true},target:self,action:#selector(paletteChanged(_:)))
+            b.tag=index;b.isBordered=false;b.setAccessibilityLabel(["红色","绿色","蓝色","橙色","紫色"][index]);palette.addArrangedSubview(b)
+        };stack.addArrangedSubview(palette)
+        for (tag,title,value,min,max) in [(0,"粗细（屏幕 pt）",canvas.laser.width,1.0,12.0),(1,"发光强度",canvas.laser.glow,0.0,1.0),(2,"消失时间（秒）",canvas.laser.duration,0.3,10.0)] {
+            let label=NSTextField(labelWithString:title+String(format:"  %.1f",value));label.tag=100+tag;stack.addArrangedSubview(label)
+            let slider=NSSlider(value:value,minValue:min,maxValue:max,target:self,action:#selector(sliderChanged(_:)))
+            slider.tag=tag;slider.isContinuous=true;slider.setAccessibilityLabel(title);slider.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(slider)
+        }
+        let hint=NSTextField(wrappingLabelWithString:"按住鼠标或 Pencil 接触页面使用。仅临时显示，不保存到 PDF。")
+        hint.font = .systemFont(ofSize:11);hint.textColor = .secondaryLabelColor;hint.widthAnchor.constraint(equalToConstant:232).isActive=true;stack.addArrangedSubview(hint)
+        preferredContentSize=CGSize(width:260,height:stack.fittingSize.height)
+    }
+    private func changed() {reader?.canvas.rememberWritingPreferences();if let canvas=reader?.canvas,let page=canvas.laser.page {canvas.presentation.views[ObjectIdentifier(page)]?.laserView.invalidateLaser()};reader?.updateParameters()}
+    @objc private func formChanged(_ sender:NSSegmentedControl) {reader?.canvas.laser.form=LaserForm(rawValue:sender.selectedSegment) ?? .trail;changed()}
+    @objc private func colorChanged(_ sender:NSColorWell) {reader?.canvas.colors[.laser]=sender.color.withAlphaComponent(1);changed()}
+    @objc private func paletteChanged(_ sender:NSButton) {
+        let c=[NSColor.systemRed,.systemGreen,.systemBlue,.systemOrange,.systemPurple][sender.tag]
+        reader?.canvas.colors[.laser]=c;stack.arrangedSubviews.compactMap{$0 as? NSColorWell}.first?.color=c;changed()
+    }
+    @objc private func sliderChanged(_ sender:NSSlider) {
+        guard let canvas=reader?.canvas else{return}
+        let titles=["粗细（屏幕 pt）","发光强度","消失时间（秒）"]
+        switch sender.tag {
+        case 0:canvas.widths[.laser]=sender.doubleValue
+        case 1:canvas.laser.glow=sender.doubleValue
+        default:canvas.laser.duration=sender.doubleValue
+        }
+        (stack.arrangedSubviews.first{$0.tag==100+sender.tag} as? NSTextField)?.stringValue=titles[sender.tag]+String(format:"  %.1f",sender.doubleValue)
+        changed()
     }
 }
 private final class WritingWidthPreview:NSView {

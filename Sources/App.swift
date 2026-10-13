@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func find() { activeReader?.openSearch() }
     @objc private func addNote() { activeReader?.addNoteFromSelection() }
     func validateMenuItem(_ item:NSMenuItem)->Bool {
-        if item.action == #selector(chooseTool(_:)) { item.state=activeReader?.canvas.tool.rawValue == item.tag ? .on : .off; return activeReader != nil && activeReader?.canvas.gesture == false }
+        if item.action == #selector(chooseTool(_:)) { item.state=activeReader?.canvas.tool.rawValue == item.tag ? .on : .off; return activeReader != nil }
         if item.action == #selector(compareLegacy) {item.state=PenEngine.legacy ? .on:.off;return !readers.contains{$0.canvas.gesture}}
         if item.action == #selector(compareObservation) {item.state=PenEngine.legacy ? .off:.on;return !readers.contains{$0.canvas.gesture}}
         if item.action == #selector(addNote) {item.title=activeReader?.noteCommandTitle ?? "添加批注";return activeReader?.canPerformNoteCommand == true}

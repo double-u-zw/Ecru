@@ -74,6 +74,20 @@ enum UITestDriver {
                 r.testChooseZoom("适合页面");settle(r)
                 try expect(!r.pdfView.autoScales && r.pdfView.scaleFactor>0 && r.testZoomMenuTitles.prefix(2)==["适合宽度","适合页面"],"fit page retains its preset and changes scale")
                 r.pdfView.autoScales=false;r.pdfView.scaleFactor=0.8;settle(r)
+                let laserBaseline=r.session.annotations,laserModified=r.session.isModified
+                r.testSelectTool(.laser)
+                r.testOpenColor();settle(r)
+                func descendants(_ v:NSView)->[NSView] {[v]+v.subviews.flatMap(descendants)}
+                let laserControls=descendants(r.parameterPopover.contentViewController!.view)
+                try expect(laserControls.filter{$0 is NSSlider}.count==3 && laserControls.contains{$0 is NSColorWell} && laserControls.contains{$0 is NSSegmentedControl},"laser panel exposes form, color, width, glow and lifetime")
+                r.closeParameters()
+                drag(r,(0...30).map{CGPoint(x:120+Double($0)*3,y:400)})
+                try expect(r.canvas.laser.samples.count>=31 && !r.canvas.gesture && r.canvas.activeInkStroke == nil,"native window sends laser input independently of Google Ink")
+                try expect(r.session.annotations==laserBaseline && r.session.isModified==laserModified && !r.session.canUndo,"temporary laser creates no PDF modifications or history")
+                r.canvas.laser.duration=0.3
+                RunLoop.current.run(until:Date().addingTimeInterval(0.45))
+                try expect(r.canvas.laser.page == nil && r.canvas.laser.samples.isEmpty,"native fade timer clears all temporary marks")
+                r.canvas.laser.duration=2
                 r.testSelectTool(.pen)
                 drag(r,(0...70).map{CGPoint(x:120+Double($0)*2,y:360)})
                 try expect(r.session.inkStrokes(on:page).count==1,"Google Ink writes one reversible stroke")

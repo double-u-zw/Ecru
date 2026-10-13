@@ -4,9 +4,9 @@
 
 轻量、原生的 macOS PDF 阅读与手写批注工具。打开文档，在原文上直接书写，把想法留在阅读现场。
 
-**Beta：0.5.0-beta.3（19）** · macOS 13+ · Apache-2.0
+**Beta：0.5.0-beta.4（20）** · macOS 13+ · Apache-2.0
 
-[Apple Silicon DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.3/Ecru-0.5.0-beta.3-arm64.dmg) · [Intel DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.3/Ecru-0.5.0-beta.3-x86_64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.3) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
+[Apple Silicon DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.4/Ecru-0.5.0-beta.4-arm64.dmg) · [Intel DMG](https://github.com/double-u-zw/Ecru/releases/download/v0.5.0-beta.4/Ecru-0.5.0-beta.4-x86_64.dmg) · [发布说明与校验文件](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.4) · [反馈问题](https://github.com/double-u-zw/Ecru/issues/new/choose)
 
 ![Ecru 实际应用窗口：PDF 阅读与手写批注](assets/reading-candidate.png)
 
@@ -15,7 +15,8 @@
 - Google Ink 与真实压感手写、连续笔宽、停笔图形规整与恢复手绘。
 - 已有图形的独立边框、填充颜色及透明度编辑，支持多选。
 - 截图 / 图片粘贴与拖入，移动、缩放、非破坏裁剪、旋转、锁定和与笔迹组合；保存重开可继续编辑。
-- 六种工具：选择、笔、文字高亮、自由荧光笔、橡皮和圈选移动。
+- 七种工具：选择、笔、橡皮、文字高亮、自由荧光笔、圈选移动和激光笔。
+- 原生临时激光轨迹 / 光点：连续柔光、完整轨迹保持后整体淡出，颜色、粗细、发光和消失时间可调；不写入 PDF。
 - 文本搜索、目录、缩略图、页面导航和多窗口阅读。
 - 与原文关联的文字批注，支持离线 Markdown 与数学公式预览。
 - 撤销与重做、保存与另存为；批注保存在 PDF 内，重新打开可继续编辑。
@@ -27,31 +28,37 @@
 
 截图来自历史 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
 
-## 本次发布验证
+## 激光笔与本次验证
 
-[Beta 3 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38276748166) 已通过 Apple Silicon 和 Intel 的构建、核心回归、图片 / 填充 78 项及安装包生成。发布标签冻结源码 `9231496b9dadc5ca5e5341fdcb3795246ce9bf08`，两份安装包标记同一源码。已发布包、Beta 2 和历史标签保持不变；真实设备手感仍需单独验证。
+按 **⌘7** 或工具栏最后的“激光笔”，用鼠标拖动或 PadInk + Apple Pencil 接触页面。点击“轨迹 · 设置”选择轨迹 / 光点，并调整颜色、粗细、发光和消失时间。默认红色、约 2 秒：停笔后保持完整形状，最后一小段整体柔和淡出。轨迹跟随 PDF 页面缩放和滚动，视觉粗细按屏幕点保持。
+
+![Ecru 开发候选的原生激光显示：合成 PDF 上的柔光轨迹](assets/laser-candidate.png)
+
+激光是临时页面像素，不保存到 PDF，不创建批注、撤销记录或恢复草稿，不改变文档修改状态。录屏能捕获它，PadInk 继续使用现有视频链路。工具切换、页面 / 文档切换、窗口失焦和关闭清理临时内容；原有无箭头 Pencil 体验保留。
+
+本地专项覆盖临时数据隔离、导航误判、参数、渐隐、输入、缩放、旋转 / 裁剪、窗口独立和 ScreenCaptureKit 窗口像素；也保留原有图片、图形、保存及恢复回归。双架构候选的实际验证记录见 [验证说明](docs/Validation.md)。本机 arm64 / Rosetta 测试不代替真实 Intel 输入、Pencil 跟手或 PadInk 端到端视频延迟的真人验收。历史 Beta 3、Beta 2 和全部已发布标签与安装包保留。
 
 ## 图片与 PDF 兼容性
 
 选择图形后点“填充”编辑已有对象；笔色变化不会改变旧图形。PDF 获得焦点时 ⌘V 插入截图，文本输入框内正常粘贴文本。图片调整完成后恢复原工具，可继续在图片上书写；橡皮只擦除笔迹。用选择 / 圈选工具编辑图片，详情见 [可编辑对象](docs/EditableObjects.md)。
 
-密码解锁和签名 PDF 只读；普通表单 / 附件保留结构保存；XFA、活动内容、Portfolio 使用受保护的静态阅读。详情见 [PDF 兼容性](docs/PDFCompatibility.md)。历史下载包、Tag 和 DMG 保持不变。
+密码解锁和签名 PDF 只读；普通表单 / 附件保留结构保存；XFA、活动内容、Portfolio 使用受保护的静态阅读。普通课件的本地翻页 / 查找导航动作、空事件表和纯本地导航事件不再单独导致整份 PDF 只读；自动事件在内存阅读视图中禁用，原对象仍保留。未知命令、脚本、签名、加密及结构异常继续按能力保护。详情见 [PDF 兼容性](docs/PDFCompatibility.md) 与 [激光笔](docs/LaserPointer.md)。历史下载包、Tag 和 DMG 保持不变。
 
 ## 系统要求
 
 | 项目 | 要求 |
 | --- | --- |
-| beta.3 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
+| beta.4 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
-| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；本次 CI macOS 14 arm64 / macOS 15 Intel |
+| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；真实输入与其他系统仍需验收 |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
-beta.3 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
+beta.4 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
 
 ## 下载与安装
 
-1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和 beta.3 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
+1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和对应发布 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
 2. 打开 DMG，将 **Ecru.app** 拖入 **Applications（应用程序）**，然后推出磁盘映像。
 3. 从“应用程序”启动 Ecru。
 4. 本 Beta 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
@@ -71,7 +78,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 ## 使用方法
 
 1. 启动后选择 PDF，或按 **⌘O** 打开文件；也可在 Finder 中使用“打开方式 → Ecru”。
-2. 默认进入笔工具，在页面上直接书写。用工具栏切换选择、高亮、荧光笔、橡皮与圈选；快捷键为 **⌘1** 选择、**⌘2** 笔、**⌘3** 文字高亮、**⌘4** 自由荧光笔、**⌘5** 橡皮、**⌘6** 圈选。
+2. 默认进入笔工具，在页面上直接书写。用工具栏切换选择、高亮、荧光笔、橡皮与圈选；快捷键为 **⌘1** 选择、**⌘2** 笔、**⌘3** 文字高亮、**⌘4** 自由荧光笔、**⌘5** 橡皮、**⌘6** 圈选、**⌘7** 激光笔。
 3. 橡皮用于擦除 Ecru 笔迹；圈选后可以拖动选中的 Ecru 笔迹。其他软件产生的批注会尽量保留，不承诺全部可编辑。
 4. 使用 **⌘Z** 撤销、**⇧⌘Z** 重做；使用 **⌘F** 搜索 PDF 文本。
 5. 选择一段原文，按 **⇧⌘N** 添加文字批注；可使用 Markdown、`$行内公式$` 或 `$$独立公式$$`。

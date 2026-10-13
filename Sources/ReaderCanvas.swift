@@ -2,10 +2,10 @@ import AppKit
 import PDFKit
 
 enum ReaderTool: Int, CaseIterable {
-    case select, pen, textHighlight, marker, eraser, lasso
-    static let toolbarOrder: [ReaderTool] = [.select,.pen,.eraser,.textHighlight,.marker,.lasso]
-    var title: String { ["选择", "笔", "文字高亮", "自由荧光笔", "橡皮", "圈选"][rawValue] }
-    var symbol: String { ["cursorarrow", "pencil.tip", "textformat", "highlighter", "eraser", "lasso"][rawValue] }
+    case select, pen, textHighlight, marker, eraser, lasso, laser
+    static let toolbarOrder: [ReaderTool] = [.select,.pen,.eraser,.textHighlight,.marker,.lasso,.laser]
+    var title: String { ["选择", "笔", "文字高亮", "自由荧光笔", "橡皮", "圈选", "激光笔"][rawValue] }
+    var symbol: String { ["cursorarrow", "pencil.tip", "textformat", "highlighter", "eraser", "lasso", "light.beacon.max"][rawValue] }
 }
 
 /// Transparent input router. Page content is rendered exclusively by PDFKit-owned overlays.
@@ -22,9 +22,14 @@ final class ReaderCanvas: NSView {
     weak var reader: ReaderWindow?
     var pdfView: PDFView { reader!.pdfView }
     var session: DocumentSession { reader!.session }
-    var tool: ReaderTool = .pen
-    var colors: [ReaderTool: NSColor] = [.pen: .systemBlue, .textHighlight: NSColor.systemYellow.withAlphaComponent(0.45), .marker: NSColor.systemYellow.withAlphaComponent(0.28)]
-    var widths: [ReaderTool: Double] = [.pen: 1.6, .marker: 14]
+    var tool: ReaderTool = .pen { didSet { laser.clear() } }
+    lazy var laser: LaserPresentation = {
+        let laser=LaserPresentation()
+        laser.invalidate = { [weak self] page in self?.presentation.views[ObjectIdentifier(page)]?.laserView.invalidateLaser() }
+        return laser
+    }()
+    var colors: [ReaderTool: NSColor] = [.pen: .systemBlue, .laser: .systemRed, .textHighlight: NSColor.systemYellow.withAlphaComponent(0.45), .marker: NSColor.systemYellow.withAlphaComponent(0.28)]
+    var widths: [ReaderTool: Double] = [.pen: 1.6, .marker: 14, .laser: 3]
     var eraserRadius: CGFloat = 10
     private static var writingDefaults:UserDefaults {
         let suffix=EcruEnvironment.value("ECRU_DATA_DIR").map{AnnotationPDF.hash(Data($0.utf8)).prefix(16)}
@@ -57,10 +62,14 @@ final class ReaderCanvas: NSView {
     required init?(coder:NSCoder) {super.init(coder:coder);loadWritingPreferences()}
     private func loadWritingPreferences() {
         let d=Self.writingDefaults
-        for t in [ReaderTool.pen,.marker,.textHighlight] {
+        for t in [ReaderTool.pen,.marker,.textHighlight,.laser] {
             if let rgba=d.array(forKey:"color.\(t.rawValue)") as? [Double],rgba.count==4,rgba.allSatisfy({$0.isFinite && (0...1).contains($0)}) {colors[t]=NSColor(srgbRed:rgba[0],green:rgba[1],blue:rgba[2],alpha:rgba[3])}
             let w=d.double(forKey:"width.\(t.rawValue)");if (0.1...64).contains(w){widths[t]=w}
         }
+        laser.form=LaserForm(rawValue:d.integer(forKey:"laser.form")) ?? .trail
+        if let value=d.object(forKey:"laser.glow") as? Double,(0...1).contains(value){laser.glow=value}
+        if let value=d.object(forKey:"laser.duration") as? Double,(0.3...10).contains(value){laser.duration=value}
+        laser.color=colors[.laser]!;laser.width=widths[.laser]!
         if let value=d.object(forKey:"pressureEnabled") as? Bool {pressureEnabled=value}
         if let value=d.object(forKey:"automaticShapes") as? Bool {automaticShapes=value}
         if let value=d.object(forKey:"automaticPenReturn") as? Bool {automaticPenReturn=value}
@@ -75,7 +84,9 @@ final class ReaderCanvas: NSView {
         let d=Self.writingDefaults
         func rgba(_ c:NSColor)->[Double] {let c=c.usingColorSpace(.sRGB) ?? .black;return [c.redComponent,c.greenComponent,c.blueComponent,c.alphaComponent]}
         if let color {recentColors.removeAll{rgba($0)==rgba(color)};recentColors.insert(color,at:0);recentColors=Array(recentColors.prefix(8))}
-        for t in [ReaderTool.pen,.marker,.textHighlight] {d.set(rgba(colors[t]!),forKey:"color.\(t.rawValue)");if let w=widths[t]{d.set(w,forKey:"width.\(t.rawValue)")}}
+        for t in [ReaderTool.pen,.marker,.textHighlight,.laser] {d.set(rgba(colors[t]!),forKey:"color.\(t.rawValue)");if let w=widths[t]{d.set(w,forKey:"width.\(t.rawValue)")}}
+        laser.color=colors[.laser]!;laser.width=widths[.laser]!
+        d.set(laser.form.rawValue,forKey:"laser.form");d.set(laser.glow,forKey:"laser.glow");d.set(laser.duration,forKey:"laser.duration")
         d.set(pressureEnabled,forKey:"pressureEnabled");d.set(pressureSensitivity,forKey:"pressureSensitivity");d.set(automaticShapes,forKey:"automaticShapes");d.set(automaticPenReturn,forKey:"automaticPenReturn");d.set(tiltEraser,forKey:"tiltEraser");d.set(eraserRadius,forKey:"eraserRadius");d.set(shapeFill.map(rgba),forKey:"shapeFill");d.set(shapeFillFollowsPen,forKey:"shapeFillFollowsPen");d.set(recentColors.map(rgba),forKey:"recentColors")
     }
     var hasShapePreview:Bool {snappedShape != nil}
@@ -359,7 +370,7 @@ final class ReaderCanvas: NSView {
     private var regionMode = false
     private var regionRelink: UUID?
     private var regionRect: CGRect?
-    func beginRegion(relink:UUID?) { clearSelection(); regionMode=true; regionRelink=relink; regionRect=nil; refreshToolCursor(); NSCursor.crosshair.set() }
+    func beginRegion(relink:UUID?) { laser.clear(); clearSelection(); regionMode=true; regionRelink=relink; regionRect=nil; refreshToolCursor(); NSCursor.crosshair.set() }
     var selectedNoteID:UUID? {
         if let id=selectedHighlightID {return session.annotations.note(for:id)?.id}
         if let clicked=clickedInkNote {return clicked.0}
@@ -457,6 +468,12 @@ final class ReaderCanvas: NSView {
         if activePage != nil || previousCoalescing != nil { finishInterruptedInput() }
         // The click that dismisses a parameter popover is consumed before it reaches a page.
         if reader.parameterPopover.isShown { reader.closeParameters(); return }
+        if tool == .laser, !regionMode {
+            window?.makeFirstResponder(self); updateToolCursor(at:event.locationInWindow)
+            guard let (page,p)=location(event) else {return}
+            previousCoalescing=NSEvent.isMouseCoalescingEnabled;NSEvent.isMouseCoalescingEnabled=false
+            laser.begin(on:page,at:p);return
+        }
         reader.noteCard.commit()
         window?.makeFirstResponder(self)
         updateToolCursor(at:event.locationInWindow)
@@ -573,6 +590,11 @@ final class ReaderCanvas: NSView {
         return true
     }
     override func mouseDragged(with event: NSEvent) {
+        if tool == .laser, !regionMode {
+            if let (page,p)=location(event), page === laser.page {laser.append(p)}
+            else {laser.end();restoreCoalescing()}
+            return
+        }
         let received = ProcessInfo.processInfo.systemUptime
         guard let page = activePage else { return }
         let viewPoint = pdfView.convert(event.locationInWindow, from: nil)
@@ -707,6 +729,10 @@ final class ReaderCanvas: NSView {
         inputTrace?.drawCallbacks?.append(InkDrawCallback(throughSample:count,started:started,completed:ProcessInfo.processInfo.systemUptime))
     }
     override func mouseUp(with event: NSEvent) {
+        if tool == .laser, !regionMode {
+            if let (page,p)=location(event),page === laser.page {laser.append(p)}
+            laser.end();restoreCoalescing();updateToolCursor(at:event.locationInWindow);return
+        }
         let received = ProcessInfo.processInfo.systemUptime
         if gesture, let id = activeInkID, let page = activePage {
             let raw = pdfView.convert(pdfView.convert(event.locationInWindow, from: nil), to: page)
@@ -737,7 +763,7 @@ final class ReaderCanvas: NSView {
         finishInput()
         if returnToPen {setTool(.pen);reader?.refresh()}
     }
-    func finishInterruptedInput() { cancelPadInkZoom(); inputTrace?.interrupted = true; finishInput(); restoreCoalescing(); refreshToolCursor() }
+    func finishInterruptedInput() { laser.clear(); cancelPadInkZoom(); inputTrace?.interrupted = true; finishInput(); restoreCoalescing(); refreshToolCursor() }
     private func finishInput() {
         holdTimer?.invalidate();holdTimer=nil
         guard let page = activePage else { return }
@@ -875,7 +901,7 @@ final class ReaderCanvas: NSView {
     // process/global hide counters. ScreenCaptureKit receives the same image.
     static let paperCursor = NSCursor(image:NSImage(size:NSSize(width:16,height:16),flipped:false) { _ in true },hotSpot:.zero)
     var menuTracking = false
-    var usesPaperCursor: Bool { !regionMode && [.pen,.marker,.eraser].contains(tool) }
+    var usesPaperCursor: Bool { !regionMode && [.pen,.marker,.eraser,.laser].contains(tool) }
     func cursorless(at windowPoint:CGPoint) -> Bool {
         guard usesPaperCursor, !menuTracking, NSApp.isActive, let window,
               window.isKeyWindow, reader != nil, let content=window.contentView,
