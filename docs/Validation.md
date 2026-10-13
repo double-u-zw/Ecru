@@ -1,6 +1,6 @@
-# Beta 5 icon release validation scope
+# Beta 5 icon release validation results
 
-Candidate identity: **0.5.0-beta.5 (21)**. This release replaces the application
+Release identity: **0.5.0-beta.5 (21)**. This release replaces the application
 icon with the maintainer-supplied blue book/cyan writing-ribbon image. Its original
 1254-square PNG is preserved byte for byte; AppKit native clipping removes the
 opaque exterior with no generated/redrawn center artwork. The ICNS contains all
@@ -9,9 +9,30 @@ icon resource name to prevent reuse of the prior icon resource.
 
 Production behavior and Google Ink algorithm/model remain the Beta 4 baseline;
 only the release version/build identity changes in the native configuration.
-This source preparation does not claim a Beta 5 CI result. Matching Apple Silicon
-and Intel native builds/core tests and verification of both release packages are
-required before publication. Beta 4 and older tags/assets remain immutable.
+The [Beta 5 native CI run](https://github.com/double-u-zw/Ecru/actions/runs/38377559081)
+passed on macOS 14 Apple Silicon and macOS 15 Intel: builds, complete public core
+regressions, exact approved icon identity, 72 laser checks, 78 image/fill checks,
+two independent PDF image appearances per architecture and DMG packaging. Both
+CI artifacts were downloaded and verified for icon bytes, checksums, architecture,
+Build 21, source revision, signatures, native model receipt and 15 license files.
+
+The [published Beta 5 release](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.5)
+pins source `860ce5425fe0983b7ef98a8ec57d77ddadf68351`; both distributed Apps embed
+revision `860ce54`. Both local DMGs passed full copied-App verification. All five
+uploaded assets were downloaded and compared byte for byte before publication.
+Historical release content, asset identities/digests and tag refs remain unchanged.
+Distributed DMG SHA-256 values:
+
+- arm64: `892fc6ba4635571e5c2442b4c8f1f708a7aa696fd0c4407a12c48b69d261fdba`
+- x86_64: `9df5b8a1ee61763253490e8623bb732f18ffd4bd6dbbe8bc6db8cc734bc39ccd`
+
+Native ICNS extraction verified all 10 representation dimensions, transparent
+exteriors and opaque centers; the original master matches the supplied PNG hash.
+The development candidate passed branding/signature/localization checks separately
+without replacing installed apps. Beta 4 behavior/window/complex-PDF validation
+remains the baseline below; this icon-only update does not claim a new physical
+Pencil, video-latency or Dock-cache acceptance test. Documentation commits after
+publication do not alter the frozen release source or assets.
 
 ---
 
