@@ -1,5 +1,9 @@
-Ecru application icon
-Created for Ecru using OpenAI image generation, then packaged into native macOS
-icon sizes. No lettering or third-party logo is included. Project artwork is
-provided under Apache-2.0 with the rest of the first-party project.
-Master: Ecru-Master.png. AppIcon.icns contains standard 1x/2x representations.
+Ecru application icon — maintainer-selected 2026-10-13
+The supplied blue book / cyan writing-ribbon PNG is preserved byte for byte as
+Ecru-Master.png (1254 x 1254).
+SHA-256: 82edb285187611fcc255bdb4a9b4d3cc0467bca055701706938fcbcab9fc2dfc
+The maintainer approved native rounded-corner clipping of the exterior white
+background. Scripts/make-icon.swift preserves the original center design and
+only clips, centers and resamples it. No generated/redrawn symbol pixels are used.
+Scripts/build-icons.sh packages 16/32/128/256/512 point icons at 1x/2x as ICNS;
+AppIcon.png is the 1024-pixel rendition.

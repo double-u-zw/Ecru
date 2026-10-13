@@ -1,3 +1,22 @@
+# Beta 5 icon release validation scope
+
+Candidate identity: **0.5.0-beta.5 (21)**. This release replaces the application
+icon with the maintainer-supplied blue book/cyan writing-ribbon image. Its original
+1254-square PNG is preserved byte for byte; AppKit native clipping removes the
+opaque exterior with no generated/redrawn center artwork. The ICNS contains all
+16/32/128/256/512 point representations at 1x/2x. The bundle uses a digest-specific
+icon resource name to prevent reuse of the prior icon resource.
+
+Production behavior and Google Ink algorithm/model remain the Beta 4 baseline;
+only the release version/build identity changes in the native configuration.
+This source preparation does not claim a Beta 5 CI result. Matching Apple Silicon
+and Intel native builds/core tests and verification of both release packages are
+required before publication. Beta 4 and older tags/assets remain immutable.
+
+---
+
+## Historical Beta 4 verification
+
 # Beta 4 validation scope
 
 Candidate identity: **0.5.0-beta.4 (20)**. Adds independent temporary laser rendering

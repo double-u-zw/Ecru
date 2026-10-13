@@ -32,7 +32,7 @@ from one checkout, `Scripts/build-release.sh` builds the host first, reuses its
 native configuration receipt for the cross build, and packages two independent
 Apps. Cross compilation does not require an emulator. The optional
 `Scripts/build-universal.sh` remains available for developers who need Universal 2;
-it is not used for the beta.4 downloads.
+it is not used for the beta.5 downloads.
 
 The first build downloads pinned Abseil, QPDF 12.4.2, libjpeg-turbo 3.2.0 and build-time GoogleTest configuration
 from their public upstream repositories. QPDF and JPEG source archives are pinned
@@ -84,7 +84,7 @@ to write directly to the installed Ecru in /Applications or ~/Applications. Revi
 the development build first; update the daily App only after maintainer acceptance.
 
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
-Existing published release assets and tags must never be replaced. Run `python3 Scripts/verify-release.py output/releases/0.5.0-beta.4` before publication.
+Existing published release assets and tags must never be replaced. Run `python3 Scripts/verify-release.py output/releases/0.5.0-beta.5` before publication.
 
 ## Keep development and release apps together
 

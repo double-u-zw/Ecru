@@ -1,4 +1,4 @@
-Ecru 0.5.0-beta.4 (20)
+Ecru 0.5.0-beta.5 (21)
 macOS 13 Ventura or later
 Apple Silicon (M series): choose the -arm64.dmg.
 Intel: choose the -x86_64.dmg.

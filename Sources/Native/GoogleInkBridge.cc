@@ -106,7 +106,7 @@ extern "C" const char *ecru_google_ink_configuration(void) {
   static const std::string config = [] {
     using P = ecru::PositionDefaults;
     std::ostringstream s;
-    s << R"({"version":"0.5.0-beta.4","build":20,"recipe":"google-ink-daily-v5","model":"AdaptivePositionModel + Google Ink PassthroughModel","units":"interaction points at reference scale, seconds","referenceViewScale":2,"sourceSHA256":")"
+    s << R"({"version":"0.5.0-beta.5","build":21,"recipe":"google-ink-daily-v5","model":"AdaptivePositionModel + Google Ink PassthroughModel","units":"interaction points at reference scale, seconds","referenceViewScale":2,"sourceSHA256":")"
       << ECRU_POSITION_SHA256 << R"(","minimumDtSeconds":)" << P::minimum_dt_seconds
       << R"(,"pauseSeconds":)" << P::pause_seconds
       << R"(,"resumedDtSeconds":)" << P::resumed_dt_seconds
