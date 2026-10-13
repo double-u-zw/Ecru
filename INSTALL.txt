@@ -1,4 +1,7 @@
 Ecru 0.5.0-beta.5 (21)
+
+后续开发与新版本仅支持 Apple Silicon（arm64），不再维护 Intel / Universal 构建。下方已发布 Beta 的双架构信息属于历史记录，已有安装包和标签保持不变。
+
 macOS 13 Ventura or later
 Apple Silicon (M series): choose the -arm64.dmg.
 Intel: choose the -x86_64.dmg.

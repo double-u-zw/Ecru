@@ -1,5 +1,8 @@
 <img src="assets/icon.png" width="96" alt="Ecru icon">
 
+后续开发与新版本仅支持 Apple Silicon（arm64），不再维护 Intel / Universal 构建。下方已发布 Beta 的双架构信息属于历史记录，已有安装包和标签保持不变。
+
+
 # Ecru
 
 轻量、原生的 macOS PDF 阅读与手写批注工具。打开文档，在原文上直接书写，把想法留在阅读现场。

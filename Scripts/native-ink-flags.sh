@@ -1,8 +1,8 @@
 # Sourced after changing to the repository root. Native dependencies are pinned;
 # serialize cache creation so simultaneous test builds never rewrite an archive
 # being linked by another compiler. There is no runtime network dependency.
-ecru_arch="${ECRU_ARCH:-$(uname -m)}"
-[[ "$ecru_arch" == "arm64" || "$ecru_arch" == "x86_64" ]]
+ecru_arch="${ECRU_ARCH:-arm64}"
+[[ "$ecru_arch" == "arm64" ]] || { print -u2 "Ecru now supports Apple Silicon (arm64) only."; return 1; }
 ecru_native_cache="$PWD/.build/native-ink/$ecru_arch"
 python3 - "$ecru_arch" <<'PY'
 import fcntl, hashlib, os, pathlib, subprocess, sys

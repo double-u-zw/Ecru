@@ -18,7 +18,7 @@ assert '-dev.' not in version and '-rc.' not in version
 assert directory.name == version
 revision = run('git', '-C', str(root), 'rev-parse', '--short', 'HEAD')
 assert not run('git', '-C', str(root), 'status', '--porcelain'), 'Freeze a clean checkout before verification'
-files = {f'Ecru-{version}-{arch}.dmg' for arch in ('arm64', 'x86_64')}
+files = {f'Ecru-{version}-{arch}.dmg' for arch in ('arm64',)}
 checksums = {}
 for line in (directory/'SHA256SUMS.txt').read_text().splitlines():
     value, name = line.split('  ', 1)
@@ -32,7 +32,7 @@ report = {'version': version, 'build': expected['CFBundleVersion'], 'sourceCommi
 with tempfile.TemporaryDirectory(prefix='.release-verification.', dir=root/'.build/apps') as workspace:
     workspace = Path(workspace)
     resource_inventories, infos = [], []
-    for arch in ('arm64', 'x86_64'):
+    for arch in ('arm64',):
         dmg = directory/f'Ecru-{version}-{arch}.dmg'
         assert digest(dmg) == checksums[dmg.name]
         run('hdiutil', 'verify', str(dmg))
@@ -74,6 +74,5 @@ with tempfile.TemporaryDirectory(prefix='.release-verification.', dir=root/'.bui
         finally:
             if attached:
                 run('hdiutil','detach',str(mount))
-    assert infos[0] == infos[1] and resource_inventories[0] == resource_inventories[1]
 (directory/'verification.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n')
-print(f'PASS: {version} ({expected["CFBundleVersion"]}), both read-only DMGs, complete copied Apps, signatures, architecture, licenses and exact source identity verified')
+print(f'PASS: {version} ({expected["CFBundleVersion"]}), Apple Silicon read-only DMG, complete copied Apps, signatures, architecture, licenses and exact source identity verified')

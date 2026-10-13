@@ -1,6 +1,6 @@
 # Building Ecru
 
-Ecru targets **macOS 13.0+** on Apple Silicon and Intel. The build uses Swift,
+Ecru targets **macOS 13.0+** on Apple Silicon (arm64). The build uses Swift,
 AppKit/PDFKit, C++20 and CMake directly; no Xcode project or private SDK is required.
 
 ## Development environment
@@ -18,19 +18,11 @@ zsh Scripts/build.sh
 open ".build/apps/Ecru Dev.app"
 ```
 
-The default builds **Ecru Dev** for the **host architecture**, into
+The default builds **Ecru Dev** for **Apple Silicon (arm64)**, into
 `.build/apps/Ecru Dev.app`. App bundles stay in the hidden build workspace and are not automatically registered
-as installed applications. It does not install or replace the daily Ecru application. Set `ECRU_ARCH=arm64` or
-`ECRU_ARCH=x86_64` to choose explicitly. Each native dependency is built separately
-into `.build/native-ink/<architecture>/`. Swift, C++ and dependencies target macOS
-13.0. Running x86_64 executables/tests on Apple Silicon requires Rosetta 2.
+as installed applications. It does not install or replace the daily Ecru application. Swift, C++ and native dependencies target macOS 13.0. Intel and Universal builds are no longer supported; published historical packages remain unchanged.
 
-Release distribution uses separate **arm64** and **x86_64** DMGs. To build both
-from one checkout, `Scripts/build-release.sh` builds the host first, reuses its
-native configuration receipt for the cross build, and packages two independent
-Apps. Cross compilation does not require an emulator. The optional
-`Scripts/build-universal.sh` remains available for developers who need Universal 2;
-it is not used for the beta.5 downloads.
+Release preparation uses `Scripts/build-release.sh` to build and package one **arm64** App/DMG. Publication still requires explicit authorization and a new, unpublished version.
 
 The first build downloads pinned Abseil, QPDF 12.4.2, libjpeg-turbo 3.2.0 and build-time GoogleTest configuration
 from their public upstream repositories. QPDF and JPEG source archives are pinned
@@ -43,8 +35,6 @@ QPDF uses its native crypto backend and macOS system zlib; OpenSSL, GnuTLS and H
 ```sh
 zsh Scripts/test.sh
 zsh Scripts/test.sh --ui
-ECRU_ARCH=x86_64 zsh Scripts/test.sh
-ECRU_ARCH=x86_64 zsh Scripts/test.sh --ui
 zsh Scripts/test-image-performance.sh
 zsh Scripts/test-laser.sh
 ```
@@ -64,16 +54,15 @@ See [validation results](docs/Validation.md) for the tested environments.
 ECRU_RELEASE_DOCS="$PWD" zsh Scripts/build-release.sh
 ```
 
-Output: `output/releases/<EcruReleaseVersion>/Ecru-<version>-arm64.dmg` and
-`Ecru-<version>-x86_64.dmg`,
+Output: `output/releases/<EcruReleaseVersion>/Ecru-<version>-arm64.dmg`,
 installation notes, release notes and SHA-256 checksums. `Scripts/Info.plist` owns
 App/release versions; native runtime metadata must match them. The shared checksum
-file lists both DMGs; users downloading one can verify it with
+file lists the arm64 DMG; users can verify it with
 `shasum -a 256 -c SHA256SUMS.txt --ignore-missing`. The release archive
 contains LICENSE, NOTICE and all third-party texts. Signing is currently ad hoc;
 Developer ID and Apple notarization require the maintainer's credentials.
 
-`.github/workflows/build.yml` builds and tests on Apple Silicon and Intel runners,
+`.github/workflows/build.yml` builds and tests on Apple Silicon (arm64) runners,
 and uploads test identity/results as workflow artifacts. It does not publish Releases or package development changes as an existing release.
 Release scripts explicitly select `ECRU_VARIANT=release` and only produce candidate
 artifacts in the checkout. To build one release App, run
@@ -101,7 +90,7 @@ Avoid editing the same PDF in both apps at once; use a copy for development.
 
 ## Recovery, search and human acceptance
 
-The public suite includes current Google Ink synthetic checks, complex PDF and independent structure checks, separate-process recovery interruption/migration tests, hidden-window asynchronous search tests and existing core/image/laser/writing-tool regressions. Private recorded strokes are not required or exported. Per-run source/App identities and executable hashes are stored in `.build/test-results`. Configuration alone is not evidence that a particular commit has run remotely on either architecture.
+The public suite includes current Google Ink synthetic checks, complex PDF and independent structure checks, separate-process recovery interruption/migration tests, hidden-window asynchronous search tests and existing core/image/laser/writing-tool regressions. Private recorded strokes are not required or exported. Per-run source/App identities and executable hashes are stored in `.build/test-results`. Configuration alone is not evidence that a particular commit has run remotely on Apple Silicon.
 
 Recovery format 8 reads previous versions 1–7 and commits content-addressed PDF bases, checkpoints and bounded delta chains atomically. Search owns a separately parsed PDFKit graph on a serial queue; display, saving and search do not concurrently use the same graph. Text highlights and anchored note regions are excluded from movable object selection. Default runtime diagnostics omit document names, titles, paths and content; detailed titles require `ECRU_DETAILED_DIAGNOSTICS=1`, with bounded retention.
 
