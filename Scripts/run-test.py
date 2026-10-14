@@ -17,8 +17,8 @@ def test_inputs():
 report['testSourceSHA256']=test_inputs()
 path=directory/(run_id+'.json')
 def app_identity():
- name='Ecru' if os.getenv('ECRU_VARIANT')=='release' else 'Ecru Dev'
- app=Path(os.getenv('ECRU_TEST_APP_PATH',root/'.build/apps'/f'{name}.app'))
+ folder=root/'.build/apps' if os.getenv('ECRU_VARIANT')=='release' else root/'.build/apps/development'
+ app=Path(os.getenv('ECRU_TEST_APP_PATH',folder/'Ecru.app'))
  try:
   info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
   return dict(path=str(app),info={k:info.get(k) for k in ('CFBundleIdentifier','CFBundleVersion','EcruReleaseVersion','EcruBuildRevision','EcruSourceSHA256','EcruSourceCommit','EcruWorkspaceDirty')},architectures=subprocess.check_output(['lipo','-archs',str(app/'Contents/MacOS/Ecru')],text=True).strip().split(),executableSHA256=hashlib.sha256((app/'Contents/MacOS/Ecru').read_bytes()).hexdigest())

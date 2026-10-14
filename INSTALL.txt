@@ -1,30 +1,25 @@
-Ecru 0.5.0-beta.5 (21)
+Ecru 0.5.0-beta.6 (23)
 
-后续开发与新版本仅支持 Apple Silicon（arm64），不再维护 Intel / Universal 构建。下方已发布 Beta 的双架构信息属于历史记录，已有安装包和标签保持不变。
+Apple Silicon (M series), macOS 13 Ventura or later. Intel is no longer supported
+by new releases; published historical Intel packages remain available unchanged.
 
-macOS 13 Ventura or later
-Apple Silicon (M series): choose the -arm64.dmg.
-Intel: choose the -x86_64.dmg.
-Both packages contain the same version and features.
-
-Drag Ecru.app to Applications, eject the DMG, then launch Ecru.
-This Beta is ad-hoc signed and has not been Apple-notarized.
-If macOS blocks first launch: System Settings → Privacy & Security → Open Anyway.
-Apple instructions: https://support.apple.com/en-us/102445
-Do not disable Gatekeeper or System Integrity Protection.
+Open the arm64 DMG, drag Ecru.app to Applications, eject the DMG, then launch Ecru.
+This release uses Developer ID Application signing and Apple notarization.
+Both App and DMG contain validated notarization tickets. Normal first-open
+confirmation from macOS may still appear; no security-protection changes are needed.
+Save current documents and quit the old App normally before replacing it.
+Development and public release identities keep separate preferences/recovery;
+this package does not copy development drafts into the public release.
 
 打开 PDF ⌘O · 保存 ⌘S · 另存为 ⇧⌘S · 撤销 ⌘Z · 重做 ⇧⌘Z
-激光笔 ⌘7 · 临时轨迹 / 光点不写入 PDF ·
-粘贴截图 ⌘V · 选择图形后点“填充” · 图片调整完成点“完成”恢复原工具
-Guide: https://github.com/double-u-zw/Ecru
-Feedback: https://github.com/double-u-zw/Ecru/issues
-Verify downloads: shasum -a 256 -c SHA256SUMS.txt --ignore-missing
+激光笔 ⌘7 · 临时轨迹不写入 PDF · 图片与图形批注保存后可继续编辑。
+圈选移动笔迹、图形与图片；文字高亮和文字批注的锚定区域不参与移动。
+No OCR or automatic updater. Encrypted/signed originals remain protected.
+Ordinary AcroForm/attachment PDFs use structure-preserving saves; active/XFA/
+Portfolio files use protected static reading and explicit static-copy warnings.
 
-Encrypted and signed PDFs are read-only. Ordinary AcroForm/attachment PDFs use
-structure-preserving saves; active/XFA/Portfolio files use protected static reading.
-Images are embedded and editable on reopen, normalized to SDR sRGB with alpha.
-New image/group/fill data requires Beta 3 to continue editing.
-No OCR or automatic updater. The interface is primarily Chinese.
-Local arm64 and Rosetta validation does not replace actual Intel input testing,
-macOS 13 hardware, HDR-source or mixed-DPI display acceptance.
-First-party code: Apache-2.0. Complete licenses are included in the App and DMG.
+Verify: shasum -a 256 -c SHA256SUMS.txt
+Guide: https://github.com/double-u-zw/Ecru
+First-party code: Apache-2.0. Complete licenses are included in App and DMG.
+Physical Pencil, real IME, mixed DPI, macOS 13 hardware and prolonged use require
+separate human acceptance. Automated checks do not establish these results.

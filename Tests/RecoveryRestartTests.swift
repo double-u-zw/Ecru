@@ -89,8 +89,25 @@ import Darwin
         let process=Process();process.executableURL=URL(fileURLWithPath:CommandLine.arguments[0]);process.arguments=["--child",mode,root.path,String(count)]
         try process.run();process.waitUntilExit();check(process.terminationStatus==exitCode,"independent process \(mode) exits as expected")
     }
+    static func appendChangeRegression() {
+        let a=InkStroke(points:[InkPoint(x:10,y:10),InkPoint(x:20,y:20)],width:1.6,rgba:[0,0,1,1],kind:.pen)
+        var b=a;b.id=UUID()
+        var c=a;c.id=UUID()
+        var edited=a;edited.width=3
+        let cases:[([InkStroke],[InkStroke])]=[([], [a]),([a],[a,b,c]),([a],[edited,b]),([a,b],[b]),([a,b],[b,a,c]),([a,b],[edited,b])]
+        for (old,new) in cases {
+            let before=AnnotationStore(pages:[],ink:[old]),after=AnnotationStore(pages:[],ink:[new])
+            let change=AnnotationChange(from:before,to:after)
+            check(change.applying(to:before,forward:true)==after,"append/edit/reorder delta reproduces complete new model")
+            check(change.applying(to:after,forward:false)==before,"append/edit/reorder delta restores complete old model")
+            check(change.forwardOnly.applying(to:before)==after,"recovery delta matches undo delta")
+        }
+        let change=AnnotationChange(from:AnnotationStore(pages:[],ink:[[a]]),to:AnnotationStore(pages:[],ink:[[a,b,c]]))
+        check(change.pages.count==1 && change.pages[0].before.isEmpty && change.pages[0].after.map(\.stroke.id)==[b.id,c.id],"append-only history retains only appended strokes")
+    }
     static func main()throws {
         if CommandLine.arguments.count>1,CommandLine.arguments[1]=="--child" {try child(CommandLine.arguments[2],URL(fileURLWithPath:CommandLine.arguments[3]),Int(CommandLine.arguments[4])!);return}
+        appendChangeRegression()
         let root=URL(fileURLWithPath:FileManager.default.currentDirectoryPath).appendingPathComponent(".build/recovery-restart-"+UUID().uuidString)
         func sample(_ name:String)throws->URL {
             let path=root.appendingPathComponent(name);try FileManager.default.createDirectory(at:path,withIntermediateDirectories:true)

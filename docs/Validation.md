@@ -1,3 +1,13 @@
+# Beta 6 发布准备与验证边界
+
+待发布版本为 **0.5.0-beta.6（23）**，仅 Apple Silicon。最终源码需要分别完成本地正式包验证和对应提交的 ARM 原生 CI；下方历史结果不作为新版本通过的证据。
+
+先前签名候选 `0.5.0-beta.6-rc.1（22）` 已在独立公开源码和新依赖环境中完成构建、核心及窗口回归；Developer ID 签名、Hardened Runtime、App 与 DMG 公证及票据、Gatekeeper 和最终 DMG 副本启动/中文批注公式重开通过。正式包版本身份不同，须重新生成并验证。
+
+本地环境：macOS 27.0.1、arm64。测试使用合成 PDF 和隔离目录。最终产物附 `verification.json` 记录 App/DMG 内容、签名和冻结源码，CI 保留测试源码与被测 App 身份。实体 Pencil、真实中文 IME、混合 DPI、macOS 13 实机、PadInk 端到端延迟和长时间真人使用不由自动测试认定通过。
+
+以下保留历史发行的验证结论及架构范围。
+
 # Beta 5 icon release validation results
 
 Release identity: **0.5.0-beta.5 (21)**. This release replaces the application

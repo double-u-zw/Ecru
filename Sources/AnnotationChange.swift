@@ -23,6 +23,15 @@ struct AnnotationChange: Codable {
         pages=[]
         for page in before.ink.indices where before.ink[page] != after.ink[page] {
             let old=before.ink[page],new=after.ink[page]
+            // Normal pen commits append strokes. Verify the unchanged prefix,
+            // then retain only the new tail; avoid building ID arrays, a full
+            // collection difference and a dictionary on the input/main thread.
+            if new.count > old.count && new.prefix(old.count).elementsEqual(old) {
+                pages.append(PageEdit(page:page,before:[],after:new.indices.dropFirst(old.count).map {
+                    Positioned(index:$0,stroke:new[$0])
+                }))
+                continue
+            }
             let oldIDs=old.map(\.id),newIDs=new.map(\.id)
             var affected=Set<UUID>()
             for change in newIDs.difference(from:oldIDs) {

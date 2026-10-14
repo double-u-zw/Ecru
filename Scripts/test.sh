@@ -9,8 +9,9 @@ mkdir -p .build/test-binaries .build/module-cache output/pdf
 [[ -f output/pdf/reader-test-original.pdf ]] || "$ECRU_TEST_PYTHON" Scripts/make_fixture.py
 task_test_variant="${ECRU_VARIANT:-development}"
 task_test_name="Ecru"
-[[ "$task_test_variant" != development ]] || task_test_name="Ecru Dev"
-export ECRU_TEST_APP_PATH="${ECRU_TEST_APP_PATH:-$PWD/.build/apps/$task_test_name.app}"
+task_test_folder="$PWD/.build/apps"
+[[ "$task_test_variant" != development ]] || task_test_folder+="/development"
+export ECRU_TEST_APP_PATH="${ECRU_TEST_APP_PATH:-$task_test_folder/$task_test_name.app}"
 source Scripts/ensure-test-app.sh
 flags=(-swift-version 5 -target "$ecru_arch-apple-macosx13.0" -module-cache-path "$PWD/.build/module-cache")
 if [[ "${1:-}" == "--ui" ]]; then

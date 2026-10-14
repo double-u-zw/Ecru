@@ -4,8 +4,9 @@ cd "${0:A:h:h}"
 task_variant="${ECRU_VARIANT:-development}"
 [[ "$task_variant" == release || "$task_variant" == development ]] || { print -u2 "ECRU_VARIANT must be release or development"; exit 1; }
 task_name="Ecru"
-[[ "$task_variant" != development ]] || task_name="Ecru Dev"
-task_destination="${ECRU_APP_OUTPUT:-$PWD/.build/apps/$task_name.app}"
+task_folder="$PWD/.build/apps"
+[[ "$task_variant" != development ]] || task_folder+="/development"
+task_destination="${ECRU_APP_OUTPUT:-$task_folder/$task_name.app}"
 # Resolve symlinks before creating anything. Candidates always live under .build/apps.
 python3 Scripts/protect-build-output.py "$task_destination"
 source Scripts/native-ink-flags.sh
@@ -40,11 +41,11 @@ from pathlib import Path
 import plistlib,sys
 bundle=Path(sys.argv[1]);path=bundle/'Contents/Info.plist'
 info=plistlib.loads(path.read_bytes())
-info.update(CFBundleIdentifier='local.ecru.reader.development',CFBundleName='Ecru Dev',CFBundleDisplayName='Ecru Dev',EcruBuildChannel='development')
+info.update(CFBundleIdentifier='local.ecru.reader.development',CFBundleName='Ecru',CFBundleDisplayName='Ecru',EcruBuildChannel='development')
 for document in info.get('CFBundleDocumentTypes',[]):document['LSHandlerRank']='Alternate'
 path.write_bytes(plistlib.dumps(info))
 for strings in (bundle/'Contents/Resources').glob('*.lproj/InfoPlist.strings'):
- strings.write_text('"CFBundleDisplayName" = "Ecru Dev";\n"CFBundleName" = "Ecru Dev";\n')
+ strings.write_text('"CFBundleDisplayName" = "Ecru";\n"CFBundleName" = "Ecru";\n')
 PYDEV
 fi
 task_icon_digest="$(shasum -a 256 Resources/Branding/AppIcon.icns | cut -c1-12)"
@@ -75,7 +76,11 @@ PYINK
 if [[ "${ECRU_RELEASE:-0}" == "1" ]]; then
   rm "$task_bundle/Contents/Resources/InkSource/AdaptivePositionModel.h" "$task_bundle/Contents/Resources/InkSource/GoogleInkBridge.cc"
 fi
-codesign --force --sign - "$task_bundle"
+if [[ "$task_variant" == release && "${ECRU_ALLOW_ADHOC:-0}" != 1 ]]; then
+ python3 Scripts/release-signing.py sign "$task_bundle"
+else
+ codesign --force --sign - "$task_bundle"
+fi
 codesign --verify --strict "$task_bundle"
 mkdir -p "${task_destination:h}"
 # Atomic exchange preserves the previous usable bundle even if publication fails.

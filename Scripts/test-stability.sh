@@ -12,3 +12,4 @@ xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" -D ECRU_INPUT_TESTS Sources/*.
 xcrun swiftc "${ecru_ink_flags[@]}" "${flags[@]}" -D ECRU_INPUT_TESTS Sources/*.swift Tests/SearchTests.swift -o .build/test-binaries/SearchTests -framework AppKit -framework PDFKit -framework WebKit -framework UniformTypeIdentifiers
 .build/test-binaries/SearchTests
 "$ECRU_TEST_PYTHON" Tests/BuildEntryTests.py
+"$ECRU_TEST_PYTHON" Tests/ReleaseSigningTests.py

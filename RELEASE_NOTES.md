@@ -1,19 +1,16 @@
-# Ecru 0.5.0-beta.5（Build 21）
+# Ecru 0.5.0-beta.6（Build 23）
 
-本次更新应用图标：采用维护者选定的**蓝色书本与青色书写飘带**。保留原图中心设计，使用原生圆角裁切去除外部白底，提供完整 macOS ICNS 尺寸，适配 Finder、Dock 与应用窗口图标。
+本次集中改善持续编辑、恢复和长文档搜索，并首次提供 Developer ID 签名及 Apple 公证的安装包。仅支持 Apple Silicon（M 系列），最低 macOS 13。
 
-功能沿用 Beta 4：原生临时激光轨迹 / 光点与 ⌘7、可调颜色 / 粗细 / 发光 / 消失时间、柔和整体渐隐、普通课件本地导航的编辑兼容，以及原有手写、图片批注、图形填充、保存和恢复。Google Ink 手写算法未改动。
+- 恢复记录共享不可变 PDF 基底和图片源，批注以检查点与增量提交；减少重复编码和写盘。旧恢复记录继续可读，写入失败或中断保留最后完整状态。
+- 长文档搜索加入输入防抖、组合输入保护、取消与逐步结果，隔离搜索与显示/保存使用的 PDF 对象，避免旧查询污染新结果。
+- 降低连续书写抬笔提交的快照开销；Google Ink 算法、配方和手写参数保持。
+- 文字高亮和文字批注锚定区域不参与圈选移动；图标线条略微加粗。
+- Developer ID Application 签名、Hardened Runtime、Apple 公证及 App/DMG 票据；支持正常 macOS 安装流程。
+- 默认诊断省略文档名、窗口标题、路径和正文；保留正常错误提示。
 
-- **Apple Silicon / M 系列：** `Ecru-0.5.0-beta.5-arm64.dmg`
-- **Intel：** `Ecru-0.5.0-beta.5-x86_64.dmg`
-- 版本 **0.5.0-beta.5（Build 21）**，最低 macOS 13；两份包功能相同。
-- 下载后可用同一 Release 的 `SHA256SUMS.txt` 校验。
-- 使用 ad-hoc 签名，未经过 Developer ID 签名或 Apple 公证；首次运行方式见 `INSTALL.txt`。
+保留七工具、图片编辑、图形填充、多窗口、Markdown/公式批注和原有 PDF 保存保护。公开版本沿用历史身份和恢复位置；不会自动迁移日常开发版的数据，也没有自动更新。
 
-这是新标签和新安装包。Beta 4、Beta 3、Beta 2 和全部历史 Release 保持，不覆盖旧资产。没有自动更新，也不迁移 Ecru Dev 的设置或恢复数据。发布测试使用合成文件和隔离数据。
+安装：下载 `Ecru-0.5.0-beta.6-arm64.dmg`，拖入 Applications。下载同一版本的 `SHA256SUMS.txt` 后可运行 `shasum -a 256 -c SHA256SUMS.txt`。安装说明、许可证与源码随发行提供。
 
-Pencil 手感、PadInk 实际端到端视频延迟、真实 Intel 输入、macOS 13 实机、混合 DPI 和长期大 PDF 负载仍需真人验收。验证范围见 [验证说明](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.5/docs/Validation.md)，功能细节见 [激光笔](https://github.com/double-u-zw/Ecru/blob/v0.5.0-beta.5/docs/LaserPointer.md) 和 [Beta 4 发布说明](https://github.com/double-u-zw/Ecru/releases/tag/v0.5.0-beta.4)。
-
----
-
-**New application icon.** Beta 5 adopts the maintainer-selected blue book and cyan writing-ribbon artwork. Native rounded-corner clipping keeps the supplied center artwork and removes the opaque exterior. All Beta 4 features, Google Ink, editing and safe-save behavior remain unchanged. Separate Apple Silicon and Intel DMGs require macOS 13+. Ad-hoc signed, not Apple-notarized. Historical releases remain unchanged.
+验证范围：公开合成手写、独立进程恢复、搜索、复杂 PDF 与独立结构、图片/图形、核心与原生窗口回归；实际结果以对应源码的 CI 与安装包验证记录为准。自动化不代表实体 Pencil、真实中文 IME、混合 DPI、macOS 13 实机或长时间真人使用通过。Intel 不再维护；历史标签、说明与安装包保持不变。

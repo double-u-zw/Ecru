@@ -1,6 +1,6 @@
 <img src="assets/icon.png" width="96" alt="Ecru icon">
 
-后续开发与新版本仅支持 Apple Silicon（arm64），不再维护 Intel / Universal 构建。下方已发布 Beta 的双架构信息属于历史记录，已有安装包和标签保持不变。
+当前待发布版本为 **0.5.0-beta.6（23）**，仅支持 Apple Silicon（arm64），采用 Developer ID 签名与 Apple 公证。下面的 Beta 5 下载链接仍指向现有公开发行包；新版本通过最终验证并发布后更新下载入口。历史标签与安装包保持不变。
 
 
 # Ecru
@@ -33,7 +33,7 @@ Beta 5 更新为维护者选定的蓝色书本与青色书写飘带图标，保�
 
 截图来自历史 beta.2 开发期间的真实 AppKit 窗口，使用本项目的合成示例 PDF。beta.1 原截图仍保存在 assets/reading.png 和 assets/notes.png。
 
-## 激光笔与本次验证
+## 激光笔
 
 按 **⌘7** 或工具栏最后的“激光笔”，用鼠标拖动或 PadInk + Apple Pencil 接触页面。点击“轨迹 · 设置”选择轨迹 / 光点，并调整颜色、粗细、发光和消失时间。默认红色、约 2 秒：停笔后保持完整形状，最后一小段整体柔和淡出。轨迹跟随 PDF 页面缩放和滚动，视觉粗细按屏幕点保持。
 
@@ -41,7 +41,7 @@ Beta 5 更新为维护者选定的蓝色书本与青色书写飘带图标，保�
 
 激光是临时页面像素，不保存到 PDF，不创建批注、撤销记录或恢复草稿，不改变文档修改状态。录屏能捕获它，PadInk 继续使用现有视频链路。工具切换、页面 / 文档切换、窗口失焦和关闭清理临时内容；原有无箭头 Pencil 体验保留。
 
-本地专项覆盖临时数据隔离、导航误判、参数、渐隐、输入、缩放、旋转 / 裁剪、窗口独立和 ScreenCaptureKit 窗口像素；也保留原有图片、图形、保存及恢复回归。本次 Beta 5 [Apple Silicon / Intel 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38377559081) 均通过，发布资产上传后已下载核对；完整范围见 [验证说明](docs/Validation.md)。本机 arm64 / Rosetta 测试不代替真实 Intel 输入、Pencil 跟手或 PadInk 端到端视频延迟的真人验收。历史 Beta 3、Beta 2 和全部已发布标签与安装包保留。
+本地专项覆盖临时数据隔离、导航误判、参数、渐隐、输入、缩放、旋转 / 裁剪、窗口独立和 ScreenCaptureKit 窗口像素；也保留原有图片、图形、保存及恢复回归。历史 Beta 5 [Apple Silicon / Intel 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38377559081) 均通过，发布资产上传后已下载核对；完整范围见 [验证说明](docs/Validation.md)。本机 arm64 / Rosetta 测试不代替真实 Intel 输入、Pencil 跟手或 PadInk 端到端视频延迟的真人验收。历史 Beta 3、Beta 2 和全部已发布标签与安装包保留。
 
 ## 图片与 PDF 兼容性
 
@@ -53,10 +53,11 @@ Beta 5 更新为维护者选定的蓝色书本与青色书写飘带图标，保�
 
 | 项目 | 要求 |
 | --- | --- |
-| beta.5 下载及源码 | Apple Silicon（arm64）/ Intel（x86_64） |
+| 当前开发源码 / 待发布 Beta 6 | Apple Silicon（arm64） |
+| 历史 beta.5 下载 | Apple Silicon（arm64）/ Intel（x86_64） |
 | 已发布 beta.1 下载 | Apple Silicon（M 系列，arm64） |
 | 系统 | macOS 13 Ventura 或更新版本 |
-| 本次实际验证 | 本机 macOS 27.0.1（arm64 / Rosetta）；真实输入与其他系统仍需验收 |
+| 本地验证环境 | macOS 27.0.1（arm64）；历史 Rosetta 结果仅属于历史版本 |
 | 界面 | 主要为中文；应用名与部分系统菜单支持英文 |
 
 beta.5 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅支持 Apple Silicon。较早的 macOS 与不同输入设备尚未逐一实机验收。
@@ -66,7 +67,7 @@ beta.5 为两种芯片分别提供相同版本的安装包；历史 beta.1 仅�
 1. 从上方链接或 [Releases](https://github.com/double-u-zw/Ecru/releases) 下载适合芯片的 **arm64**（Apple Silicon / M 系列）或 **x86_64**（Intel）DMG。“关于本机”可以查看芯片型号。当前 main 和对应发布 Tag 均包含可构建源码；历史 beta.1 Tag 的 “Source code” 归档仍仅含原分发资料。普通用户请选择 DMG 安装。
 2. 打开 DMG，将 **Ecru.app** 拖入 **Applications（应用程序）**，然后推出磁盘映像。
 3. 从“应用程序”启动 Ecru。
-4. 本 Beta 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
+4. 上方链接的历史 Beta 5 使用临时签名，**尚未经过 Developer ID 签名或 Apple 公证**。首次打开若被 macOS 拦截，关闭提示，进入 **系统设置 → 隐私与安全性**，在 Ecru 的拦截提示旁点击 **仍要打开 / Open Anyway**，按系统提示确认。此操作仅为 Ecru 添加例外。具体界面见 [Apple 官方说明](https://support.apple.com/zh-cn/102445)。
 
 不要关闭 Gatekeeper 或系统完整性保护。如果设备受组织管理、系统没有提供放行选项，请联系设备管理员。
 
@@ -101,7 +102,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 - 其他 PDF 编辑器修改 Ecru 的私有批注数据后，部分内容可能仅能查看或进入保护状态；建议保留 Ecru 保存的原始版本。
 - 尚无自动更新。新版本请从本仓库 Releases 手动安装。
 - 中文输入法、不同触控板/数位板、混合 DPI 多显示器与长期多窗口使用仍需更多真人测试。鼠标与系统接收到的指针/压感事件可用于书写，不承诺所有设备驱动的行为。
-- 未公证的首次启动需要手动放行；受管理的 Mac 可能禁止运行。
+- 历史未公证安装包可能需要手动放行；新正式安装包使用 Apple 公证。受管理的 Mac 仍需遵循组织安装规则。
 
 ## 问题反馈
 
@@ -115,7 +116,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 
 ---
 
-**Ecru** is a native PDF reader and handwriting annotation app for macOS. This public Beta supports **Apple Silicon and Intel on macOS 13+**, with separate arm64 and x86_64 DMGs, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. This build is ad-hoc signed and not Apple-notarized: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). OCR and automatic updates are unavailable; encrypted/signed PDFs remain read-only. Ordinary forms/attachments use structure-preserving saves. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
+**Ecru** is a native PDF reader and handwriting annotation app for macOS. The upcoming Beta 6 supports **Apple Silicon on macOS 13+**; the Beta 5 links above are historical arm64/x86_64 packages, with a primarily Chinese interface. Download the DMG, drag Ecru to Applications, and launch it. Beta 6 uses Developer ID signing and Apple notarization. Historical Beta 5 packages are ad-hoc signed: if blocked, use **System Settings → Privacy & Security → Open Anyway**, following [Apple’s instructions](https://support.apple.com/en-us/102445). OCR and automatic updates are unavailable; encrypted/signed PDFs remain read-only. Ordinary forms/attachments use structure-preserving saves. Use [Issues](https://github.com/double-u-zw/Ecru/issues/new/choose) for feedback.
 
 ## 开发与开源许可
 
@@ -124,17 +125,17 @@ git clone https://github.com/double-u-zw/Ecru.git
 cd Ecru
 zsh Scripts/setup-tests.sh
 zsh Scripts/build.sh
-open ".build/apps/Ecru Dev.app"
+open ".build/apps/development/Ecru.app"
 ```
 
-需要 Xcode Command Line Tools、CMake 3.19+、Python 3.12+ 和 Node.js。默认构建本机架构的 Ecru Dev，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
+需要 Xcode Command Line Tools、CMake 3.19+、Python 3.12+ 和 Node.js。默认构建 Apple Silicon 的 Ecru，使用独立 development 身份，最低 macOS 13。首次构建下载固定版本的公开依赖；无私人目录或运行时网络依赖。测试环境及详细操作见 [BUILDING.md](BUILDING.md)。
 
 - `Sources/`：AppKit 阅读窗口、PDF 编辑/恢复、Swift 笔迹适配与 C++ Google Ink 桥接。
 - `Resources/`：图标、本地化与离线 Markdown/数学预览。
 - `ThirdParty/`：固定版本的上游源码和原许可证。
-- `Scripts/`、`Tests/`：构建、分架构打包和可复现的公开回归。
+- `Scripts/`、`Tests/`：构建、Apple Silicon 打包和可复现的公开回归。
 - `docs/`：架构与存储兼容约定；`assets/` 和 `licenses/` 保留产品分发资料。
 
 Ecru 第一方源码、文档与项目美术采用 [Apache-2.0](LICENSE)，允许修改和分发衍生版本。第三方材料保留各自 Apache-2.0、MIT、IJG/BSD 或 SIL OFL 1.1 许可，见 [NOTICE](NOTICE)、[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。提交规则见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-当前开发源码的恢复和搜索性能整治尚未作为新的公开 Release 发布。默认构建与验收使用 Ecru Dev；文字高亮和批注锚定区域不参与圈选移动。测试入口、隔离存储、诊断保留及真人验收边界统一见 [BUILDING.md](BUILDING.md)。
+当前开发源码的恢复和搜索性能整治尚未作为新的公开 Release 发布。默认构建与验收使用独立 development 身份的 Ecru；文字高亮和批注锚定区域不参与圈选移动。测试入口、隔离存储、诊断保留及真人验收边界统一见 [BUILDING.md](BUILDING.md)。

@@ -15,11 +15,11 @@ git clone https://github.com/double-u-zw/Ecru.git
 cd Ecru
 zsh Scripts/setup-tests.sh
 zsh Scripts/build.sh
-open ".build/apps/Ecru Dev.app"
+open ".build/apps/development/Ecru.app"
 ```
 
-The default builds **Ecru Dev** for **Apple Silicon (arm64)**, into
-`.build/apps/Ecru Dev.app`. App bundles stay in the hidden build workspace and are not automatically registered
+The default builds **Ecru** for **Apple Silicon (arm64)**, into
+`.build/apps/development/Ecru.app`. App bundles stay in the hidden build workspace and are not automatically registered
 as installed applications. It does not install or replace the daily Ecru application. Swift, C++ and native dependencies target macOS 13.0. Intel and Universal builds are no longer supported; published historical packages remain unchanged.
 
 Release preparation uses `Scripts/build-release.sh` to build and package one **arm64** App/DMG. Publication still requires explicit authorization and a new, unpublished version.
@@ -51,6 +51,9 @@ See [validation results](docs/Validation.md) for the tested environments.
 ## Distribution
 
 ```sh
+export ECRU_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+export ECRU_SIGN_TEAM="TEAMID"
+export ECRU_NOTARY_PROFILE="your-local-keychain-profile"
 ECRU_RELEASE_DOCS="$PWD" zsh Scripts/build-release.sh
 ```
 
@@ -59,8 +62,25 @@ installation notes, release notes and SHA-256 checksums. `Scripts/Info.plist` ow
 App/release versions; native runtime metadata must match them. The shared checksum
 file lists the arm64 DMG; users can verify it with
 `shasum -a 256 -c SHA256SUMS.txt --ignore-missing`. The release archive
-contains LICENSE, NOTICE and all third-party texts. Signing is currently ad hoc;
-Developer ID and Apple notarization require the maintainer's credentials.
+contains LICENSE, NOTICE and all third-party texts. Official candidates require Developer ID Application signing with a secure timestamp
+and Hardened Runtime. The script notarizes/staples the App, packages/signs/notarizes/
+staples the DMG, then checks both tickets and Gatekeeper. Credentials stay in the
+local Keychain; these environment variables are only identity/team/profile names.
+Never put passwords, private keys or certificates in the public checkout.
+`xcrun notarytool store-credentials "your-local-keychain-profile"` provides the
+interactive credential setup; enter credentials locally, never in chat.
+
+Notarization uploads only the candidate binary to Apple; it does not publish a
+GitHub Release. Submission IDs and Apple logs are retained under `.build/notary`.
+`python3 Scripts/release-signing.py notarize <same-candidate-path>` resumes a known
+pending submission. Unknown interrupted upload outcomes require reconciliation
+with `notarytool history` before retrying. Failed DMG candidates stay in
+`output/releases/.<version>-pending`; do not discard pending submissions blindly.
+After successful retry, regenerate SHA256SUMS.txt from the final stapled DMG and
+rename the pending directory to the version before running verify-release.py.
+
+Ad-hoc release compilation is only for explicit offline checks with
+`ECRU_ALLOW_ADHOC=1`; it cannot enter official packaging or publication.
 
 `.github/workflows/build.yml` builds and tests on Apple Silicon (arm64) runners,
 and uploads test identity/results as workflow artifacts. It does not publish Releases or package development changes as an existing release.
@@ -71,16 +91,16 @@ to write directly to installed Ecru/Ecru Dev, any running candidate, or a destin
 the development build first; update the daily App only after maintainer acceptance.
 
 An accepted release is published with `Scripts/publish-release.sh` after UI review.
-Existing published release assets and tags must never be replaced. Run `python3 Scripts/verify-release.py output/releases/0.5.0-beta.5` before publication.
+RC candidates cannot be published by publish-release.sh. Publication first uploads a draft, downloads every asset for byte verification, and only then makes the release public. Existing published release assets and tags must never be replaced. Run `python3 Scripts/verify-release.py output/releases/0.5.0-beta.6` before publication.
 
 ## Keep development and release apps together
 
 ```sh
 zsh Scripts/build.sh
-open ".build/apps/Ecru Dev.app"
+open ".build/apps/development/Ecru.app"
 ```
 
-This creates **Ecru Dev**, with bundle ID `local.ecru.reader.development`,
+This creates **Ecru**, with bundle ID `local.ecru.reader.development`,
 separate preferences/recent documents and `Application Support/Ecru-Dev` drafts
 and reading positions. It can be installed alongside **Ecru** (currently the public Beta, not a stable release). Release builds
 retain the historical bundle ID and data location so existing recovery records
@@ -95,3 +115,5 @@ The public suite includes current Google Ink synthetic checks, complex PDF and i
 Recovery format 8 reads previous versions 1–7 and commits content-addressed PDF bases, checkpoints and bounded delta chains atomically. Search owns a separately parsed PDFKit graph on a serial queue; display, saving and search do not concurrently use the same graph. Text highlights and anchored note regions are excluded from movable object selection. Default runtime diagnostics omit document names, titles, paths and content; detailed titles require `ECRU_DETAILED_DIAGNOSTICS=1`, with bounded retention.
 
 Physical Pencil, real IME candidate behavior, disconnect handling, mixed DPI and prolonged multiwindow usage still require human acceptance. Automated tests do not validate physical latency.
+
+日常构建统一显示为 Ecru；development 身份、偏好与恢复目录保持，以兼容已有数据。公开发行仍需显式 release 构建。

@@ -10,6 +10,6 @@ x86_64 App/DMG builds. Its source tag identifies the frozen public source used b
 packages. Historical Beta 1, Beta 2, Beta 3, RC tags and installation packages are immutable.
 Release preparation creates local candidates; preparing a package does not publish a Release.
 
-Signing is ad hoc. Apple Developer ID signing and notarization are not available.
+Published Beta 5 and earlier remain ad-hoc signed. New official candidates require Developer ID Application signing and Apple notarization; see BUILDING.md. No new candidate is published by these build scripts.
 The default development build remains Ecru Dev, with separate identity, preferences
 and recovery storage. Release builds do not install themselves or replace the daily App.

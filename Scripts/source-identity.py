@@ -10,7 +10,7 @@ def identity():
  paths=[]
  for name in ('Sources','Resources','ThirdParty'):
   paths.extend(p for p in (root/name).rglob('*') if p.is_file() and '.git' not in p.parts and '__pycache__' not in p.parts and p.name!='.DS_Store')
- paths.extend(root/'Scripts'/name for name in ('build.sh','native-ink-flags.sh','Info.plist','InkConfiguration.cc','source-identity.py','protect-build-output.py','publish-app.py'))
+ paths.extend(root/'Scripts'/name for name in ('build.sh','native-ink-flags.sh','Info.plist','InkConfiguration.cc','source-identity.py','protect-build-output.py','publish-app.py','release-signing.py'))
  for path in sorted(paths):
   digest.update(str(path.relative_to(root)).encode()+b'\0');digest.update(path.read_bytes())
  return dict(commit=git('rev-parse','HEAD'),dirty=bool(git('status','--porcelain','--untracked-files=all')),sourceSHA256=digest.hexdigest())

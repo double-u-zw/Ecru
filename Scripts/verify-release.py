@@ -14,7 +14,7 @@ def inventory(folder):
 
 expected = plistlib.loads((root/'Scripts/Info.plist').read_bytes())
 version = expected['EcruReleaseVersion']
-assert '-dev.' not in version and '-rc.' not in version
+assert '-dev.' not in version
 assert directory.name == version
 revision = run('git', '-C', str(root), 'rev-parse', '--short', 'HEAD')
 assert not run('git', '-C', str(root), 'status', '--porcelain'), 'Freeze a clean checkout before verification'
@@ -27,7 +27,7 @@ for line in (directory/'SHA256SUMS.txt').read_text().splitlines():
 assert set(checksums) == files
 assert version in (directory/'INSTALL.txt').read_text()
 assert version in (directory/'RELEASE_NOTES.md').read_text()
-report = {'version': version, 'build': expected['CFBundleVersion'], 'sourceCommit': run('git','-C',str(root),'rev-parse','HEAD'), 'signing': 'ad-hoc; not Apple notarized', 'architectures': {}, 'scope': 'Local release preparation; no installed application or user PDF modified'}
+report = {'version': version, 'build': expected['CFBundleVersion'], 'sourceCommit': run('git','-C',str(root),'rev-parse','HEAD'), 'signing': 'Developer ID Application; Apple notarized and stapled', 'architectures': {}, 'scope': 'Local release preparation; no installed application or user PDF modified'}
 (root/'.build/apps').mkdir(parents=True, exist_ok=True)
 with tempfile.TemporaryDirectory(prefix='.release-verification.', dir=root/'.build/apps') as workspace:
     workspace = Path(workspace)
@@ -57,7 +57,16 @@ with tempfile.TemporaryDirectory(prefix='.release-verification.', dir=root/'.bui
             dependencies = run('otool','-L',str(binary)).splitlines()[1:]
             assert all(v.strip().startswith(('/System/Library/', '/usr/lib/')) for v in dependencies)
             run('codesign','--verify','--strict',str(app))
-            assert 'Signature=adhoc' in run('codesign','-dv',str(app))
+            from importlib.machinery import SourceFileLoader
+            signing = SourceFileLoader('release_signing', str(root/'Scripts/release-signing.py')).load_module()
+            team = os.environ['ECRU_SIGN_TEAM']
+            signing.verify(app, team); signing.verify(dmg, team)
+            run('xcrun','stapler','validate',str(app))
+            run('xcrun','stapler','validate',str(dmg))
+            run('spctl','--assess','--type','execute','--verbose=4',str(app))
+            run('spctl','--assess','--type','open','--context','context:primary-signature','--verbose=4',str(dmg))
+            source = SourceFileLoader('identity', str(root/'Scripts/source-identity.py')).load_module().identity()
+            assert info['EcruSourceCommit'] == source['commit'] and info['EcruSourceSHA256'] == source['sourceSHA256'] and info['EcruWorkspaceDirty'] is False
             assert list((app/'Contents/MacOS').iterdir()) == [binary]
             resources = app/'Contents/Resources'
             assert not list((resources/'InkSource').glob('*.h')) and not list((resources/'InkSource').glob('*.cc'))
@@ -70,7 +79,7 @@ with tempfile.TemporaryDirectory(prefix='.release-verification.', dir=root/'.bui
             built = root/f'.build/apps/{arch}/Ecru.app'
             assert inventory(app) == inventory(built), 'DMG content differs from frozen build'
             resource_inventories.append(inventory(resources)); infos.append(info)
-            report['architectures'][arch] = {'dmg': dmg.name, 'sha256': checksums[dmg.name], 'appFiles': len(inventory(app)), 'licenseFiles': len(licenses), 'readOnlyMountAndCompleteCopiedBundleVerified': True, 'deploymentTarget': '13.0', 'signatureVerified': True, 'systemLibrariesOnly': True}
+            report['architectures'][arch] = {'dmg': dmg.name, 'sha256': checksums[dmg.name], 'appFiles': len(inventory(app)), 'licenseFiles': len(licenses), 'readOnlyMountAndCompleteCopiedBundleVerified': True, 'deploymentTarget': '13.0', 'signatureVerified': True, 'signingTeam': team, 'appAndDMGTicketsValidated': True, 'gatekeeperAccepted': True, 'systemLibrariesOnly': True}
         finally:
             if attached:
                 run('hdiutil','detach',str(mount))
