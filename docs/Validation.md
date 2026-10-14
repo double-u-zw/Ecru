@@ -1,10 +1,14 @@
-# Beta 6 发布准备与验证边界
+# Beta 6 验证结果
 
-待发布版本为 **0.5.0-beta.6（23）**，仅 Apple Silicon。最终源码需要分别完成本地正式包验证和对应提交的 ARM 原生 CI；下方历史结果不作为新版本通过的证据。
+发行版本：**0.5.0-beta.6（Build 23）**，仅 Apple Silicon，最低 macOS 13。冻结公开源码为 `f81a7e10ac9b7deda949e77c52d4386f48f258aa`；[ARM 原生 CI](https://github.com/double-u-zw/Ecru/actions/runs/38525469095) 已通过，下载的测试记录确认实际主机为 arm64，被测 App 与正式签名 App 的源码输入摘要一致。
 
-先前签名候选 `0.5.0-beta.6-rc.1（22）` 已在独立公开源码和新依赖环境中完成构建、核心及窗口回归；Developer ID 签名、Hardened Runtime、App 与 DMG 公证及票据、Gatekeeper 和最终 DMG 副本启动/中文批注公式重开通过。正式包版本身份不同，须重新生成并验证。
+本地 macOS 27.0.1 上，正式 release App 的公开核心和窗口回归通过：当前 Google Ink 合成测试、独立进程恢复、搜索、复杂 PDF 与独立结构、图片/填充、激光及既有核心功能。测试使用合成文档和隔离目录。
 
-本地环境：macOS 27.0.1、arm64。测试使用合成 PDF 和隔离目录。最终产物附 `verification.json` 记录 App/DMG 内容、签名和冻结源码，CI 保留测试源码与被测 App 身份。实体 Pencil、真实中文 IME、混合 DPI、macOS 13 实机、PadInk 端到端延迟和长时间真人使用不由自动测试认定通过。
+App 与 DMG 使用 Developer ID Application 签名，并分别获得 Apple Accepted 结果，公证日志无报告问题；Hardened Runtime、双票据、严格签名、Gatekeeper、只读 DMG 挂载、完整 App 内容、许可证、版本和冻结源码身份校验通过。实际从最终 DMG 副本启动，确认 Beta 6（23）、原文显示、保存的中文批注重开和 Markdown/数学公式预览。
+
+正式 DMG SHA-256：`fa7ac8add86ad1fd37542b389cc0ed83cc422cad910a155a1d45ae934dad0c71`。
+
+实体 Pencil、真实中文 IME、混合 DPI、macOS 13 实机、PadInk 端到端延迟和长时间真人使用未由本轮自动化验收；Intel 不再维护。当前安装与用户原始 PDF 未作为破坏性测试目标。历史 Release、标签及安装包保持不变。
 
 以下保留历史发行的验证结论及架构范围。
 
