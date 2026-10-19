@@ -27,7 +27,7 @@ import Darwin
         let sample=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:240,pixelsHigh:160,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
         for y in 0..<160 {for x in 0..<240 {sample.setColor(NSColor.systemBlue.withAlphaComponent(x<20 ? 0:0.7),atX:x,y:y)}}
         let picture=try ImageImport.normalize(sample.representation(using:.png,properties:[:])!)
-        for name in ["ordinary","rotated","acroform","attachments","form-attachments","false-signature-label"] {
+        for name in ["ordinary","rotated","acroform","attachments","form-attachments","false-signature-label","unused-zero-offset"] {
             let url=dir.appendingPathComponent(name+".pdf");try FileManager.default.copyItem(at:fixtures.appendingPathComponent(name+".pdf"),to:url)
             let original=try Data(contentsOf:url);let s=try DocumentSession.open(url:url)
             check(s.capabilities.mode == .fullEditing && !s.annotationReadOnly,name+" full editing")
@@ -89,6 +89,32 @@ import Darwin
             check(try Data(contentsOf:url)==original,name+" original byte immutability")
         }
         for name in ["damaged","truncated"] {do{_=try DocumentSession.open(url:fixtures.appendingPathComponent(name+".pdf"));check(false,"damaged rejection")}catch{check(true,name+" safely rejected")}}
+        for name in ["referenced-zero-offset","nested-zero-offset","array-zero-offset","indirect-array-zero-offset","trailer-zero-offset","orphan-reference-zero-offset","mixed-zero-offset","duplicate-keys","invalid-token","recoverable-xref"] {
+            let url=fixtures.appendingPathComponent(name+".pdf"),original=try Data(contentsOf:url)
+            let s=try DocumentSession.open(url:url)
+            check(s.capabilities.features & 256 != 0 && s.annotationReadOnly,name+" remains structurally protected")
+            check(!s.beginInkAction("blocked"),name+" original cannot be edited")
+            let ordinary=try Data(contentsOf:fixtures.appendingPathComponent("ordinary.pdf"))
+            check(PDFPagePreservation.preserve(original,in:ordinary,removing:[[],[]]) == nil,name+" native writer refuses damage")
+            if case .success=save(s) {check(false,name+" save rejected")}
+            check(s.capabilities.canCreateStaticCopy,name+" offers general visible-page fallback")
+            let copy=dir.appendingPathComponent(name+"-static.pdf")
+            try s.createStaticAnnotationCopy(to:copy)
+            let editable=try DocumentSession.open(url:copy)
+            check(editable.capabilities.mode == .annotationCopy && !editable.annotationReadOnly,name+" verified copy editable")
+            check(!editable.document.findString("compatibility",withOptions:[]).isEmpty,name+" copy retains searchable text")
+            let note=editable.addRegion(page:editable.document.page(at:0)!,rect:CGRect(x:30,y:350,width:40,height:40))!
+            editable.editBody(note,markdown:"Compatibility fallback note");editable.finishAction();_=try save(editable).get()
+            check(try DocumentSession.open(url:copy).annotations.notes.first?.markdown=="Compatibility fallback note",name+" fallback saves and reopens")
+            do {try s.createStaticAnnotationCopy(to:url);check(false,name+" copy must not overwrite original")}catch {check(true,name+" original overwrite rejected")}
+            do {try s.createStaticAnnotationCopy(to:copy);check(false,name+" copy must not overwrite existing file")}catch {check(true,name+" existing copy overwrite rejected")}
+            check(try Data(contentsOf:url)==original,name+" source unchanged")
+        }
+        for flags:UInt32 in [1|256,2|256,128|256] {
+            check(!PDFCapabilities.assess(flags,allowsCommenting:true,allowsPrinting:true).canCreateStaticCopy,"structural fallback retains encryption/signature/rights restriction \(flags)")
+        }
+        check(!PDFCapabilities.assess(256,allowsCommenting:false,allowsPrinting:true).canCreateStaticCopy,"structural fallback retains annotation permission")
+        check(!PDFCapabilities.assess(256,allowsCommenting:true,allowsPrinting:false).canCreateStaticCopy,"structural fallback retains printing permission")
         for (source,tampered) in [("acroform","tampered-form"),("attachments","tampered-attachment")] {
             let original=try Data(contentsOf:fixtures.appendingPathComponent(source+".pdf")),changed=try Data(contentsOf:fixtures.appendingPathComponent(tampered+".pdf"))
             check(!PDFPagePreservation.validate(original,saved:changed,removing:[[],[]]),source+" rejects damaged field/attachment objects despite renderable PDF")

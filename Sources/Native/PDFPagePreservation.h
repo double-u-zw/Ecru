@@ -11,6 +11,7 @@ int ecru_pdf_preserve_pages(const uint8_t *original, size_t original_size,
                           const uint8_t *annotated, size_t annotated_size,
                           const char *removed_slots, uint8_t **output, size_t *output_size);
 // Inspect actual parsed objects and make an inert in-memory reading view. Password is never retained.
+// Recoverable input is reading-only (feature 256); export/validation never reconstruct damaged input.
 // Returns 1 on success, -1 for a required/incorrect password, 0 for invalid structure.
 int ecru_pdf_inspect(const uint8_t *input, size_t size, const char *password,
                      uint32_t *features, uint8_t **view, size_t *view_size);

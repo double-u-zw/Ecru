@@ -25,6 +25,39 @@ def generate(destination):
         with path.open('wb') as f:w.write(f)
         return path
     write('ordinary',writer());write('acroform',writer(True))
+    # Deleted objects incorrectly marked in-use at offset zero occur in scanned
+    # textbooks. Only an entry with no references anywhere may be tolerated.
+    def zero_offset_fixture(name, catalog=b'', trailer=b'', orphan=b'null', zero=True, broken_xref=False):
+        content=b'BT /F1 16 Tf 50 650 Td (Searchable compatibility text) Tj ET\n'
+        objects={
+            1:b'<< /Type /Catalog /Pages 2 0 R '+catalog+b' >>',
+            2:b'<< /Type /Pages /Kids [3 0 R 7 0 R] /Count 2 >>',
+            3:b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+            4:b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+            5:b'<< /Length '+str(len(content)).encode()+b' >>\nstream\n'+content+b'endstream',
+            7:b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+            8:orphan,
+        }
+        if not zero:objects[6]=b'null'
+        raw=bytearray(b'%PDF-1.7\n');offsets={}
+        for number,body in objects.items():
+            offsets[number]=len(raw);raw+=f'{number} 0 obj\n'.encode()+body+b'\nendobj\n'
+        xref=len(raw);raw+=b'xref\n0 9\n0000000000 65535 f \n'
+        for number in range(1,9):raw+=f'{offsets.get(number,0):010d} 00000 n \n'.encode()
+        raw+=b'trailer\n<< /Size 9 /Root 1 0 R '+trailer+b' >>\nstartxref\n'+str(1 if broken_xref else xref).encode()+b'\n%%EOF\n'
+        (destination/(name+'.pdf')).write_bytes(raw)
+    zero_offset_fixture('unused-zero-offset')
+    zero_offset_fixture('referenced-zero-offset',catalog=b'/Missing 6 0 R')
+    zero_offset_fixture('nested-zero-offset',catalog=b'/Nested << /Missing 6 0 R >>')
+    zero_offset_fixture('array-zero-offset',catalog=b'/Nested [6 0 R]')
+    zero_offset_fixture('indirect-array-zero-offset',catalog=b'/Nested 8 0 R',orphan=b'[6 0 R]')
+    zero_offset_fixture('trailer-zero-offset',trailer=b'/Missing 6 0 R')
+    zero_offset_fixture('orphan-reference-zero-offset',orphan=b'<< /Missing 6 0 R >>')
+    zero_offset_fixture('mixed-zero-offset',catalog=b'/Duplicate 1 /Duplicate 2')
+    # Independent warning classes exercise the fallback without a zero-offset entry.
+    zero_offset_fixture('duplicate-keys',catalog=b'/Duplicate 1 /Duplicate 2',zero=False)
+    zero_offset_fixture('invalid-token',orphan=b'<< /Value broken >>',zero=False)
+    zero_offset_fixture('recoverable-xref',zero=False,broken_xref=True)
     w=writer(True);w.root_object['/AcroForm']['/Fields'][0].get_object()[N('/V')]=T('Tampered value');write('tampered-form',w)
     w=writer(); w.pages[1].rotate(90);write('rotated',w)
     w=writer();w._ID=None;w.encrypt('reader-secret','owner-secret',algorithm='AES-256');write('password',w)

@@ -169,8 +169,13 @@ import Darwin
         let afterCrash=try DocumentSession.open(url:privateURL)
         let validRecovery=beforeCrash.recoverableRecord!
         try afterCrash.restoreRecovery(validRecovery);try save(afterCrash)
-        let restoredForeign=PDFDocument(url:privateURL)!.page(at:0)!.annotations.first{$0.value(forAnnotationKey:privateKey) != nil}
-        check(restoredForeign?.value(forAnnotationKey:privateKey) as? String == "retain-after-recovery","recovery and save preserve original highlight private fields")
+        // Annotation keys may lazily read strings from the owning CGPDFDocument.
+        // Keep that document alive until the value has been copied out.
+        let restoredDocument=PDFDocument(url:privateURL)!
+        let restoredValue=withExtendedLifetime(restoredDocument) {
+            restoredDocument.page(at:0)!.annotations.first{$0.value(forAnnotationKey:privateKey) != nil}?.value(forAnnotationKey:privateKey) as? String
+        }
+        check(restoredValue == "retain-after-recovery","recovery and save preserve original highlight private fields")
         let beforeInvalid=afterCrash.annotations
         var invalidRecord=validRecovery;invalidRecord.annotations=nil
         do { try afterCrash.restoreRecovery(invalidRecord);check(false,"invalid recovery should fail") } catch {}

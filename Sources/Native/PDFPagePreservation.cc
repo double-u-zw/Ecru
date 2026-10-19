@@ -15,10 +15,43 @@
 namespace {
 using H = QPDFObjectHandle;
 #define require(ok) do { if (!(ok)) throw std::runtime_error("PDF integrity line " + std::to_string(__LINE__)); } while (0)
-void load(QPDF& q, const uint8_t* bytes, size_t n, const char* password = nullptr) {
+// Some generators leave deleted objects marked in-use at byte offset zero.
+// QPDF resolves these to null. Ignore only its exact warning for entries proven
+// unused by every object and the trailer; a referenced missing object is damage.
+void discard_unused_zero_offset_warnings(QPDF& q) {
+  std::set<QPDFObjGen> unused;
+  for (const auto& [og, entry] : q.getXRefTable())
+    if (entry.getType() == 1 && entry.getOffset() == 0) unused.insert(og);
+  if (unused.empty()) return;
+  size_t budget = 1000000;
+  std::function<void(H,int)> visit = [&](H o, int depth) {
+    require(budget-- > 0 && depth < 128);
+    if (o.isStream()) o = o.getDict();
+    auto child = [&](H value) {
+      if (value.isIndirect()) unused.erase(value.getObjGen());
+      else visit(value, depth + 1);
+    };
+    // getKeys() omits null values, including references to missing objects.
+    if (o.isDictionary()) for (const auto& [key, value] : o.getDictAsMap()) child(value);
+    else if (o.isArray()) for (int i = 0; i < o.getArrayNItems(); ++i) child(o.getArrayItem(i));
+  };
+  for (auto o : q.getAllObjects()) visit(o, 0);
+  visit(q.getTrailer(), 0);
+  std::set<std::string> descriptions;
+  for (const auto& og : unused) descriptions.insert("object " + og.unparse(' '));
+  for (const auto& warning : q.getWarnings()) {
+    if (warning.getErrorCode() == qpdf_e_damaged_pdf && descriptions.count(warning.getObject()) &&
+        warning.getMessageDetail() == "object has offset 0 - a common error handled correctly by qpdf and most other applications") continue;
+    q.warn(warning);
+  }
+}
+void load(QPDF& q, const uint8_t* bytes, size_t n, const char* password = nullptr, bool reading_recovery = false) {
   q.setSuppressWarnings(true);
-  q.setAttemptRecovery(false);
+  // Recovery is only for an inert reading view and explicit static conversion.
+  // Original-graph export and validation always use the strict default.
+  q.setAttemptRecovery(reading_recovery);
   q.processMemoryFile("PDF", reinterpret_cast<const char*>(bytes), n, password);
+  discard_unused_zero_offset_warnings(q);
 }
 void output(QPDF& q, uint8_t** out, size_t* n) {
   QPDFWriter w(q); w.setOutputMemory(); w.setStreamDataMode(qpdf_s_preserve);
@@ -161,7 +194,7 @@ extern "C" int ecru_pdf_inspect(const uint8_t* input, size_t size, const char* p
                                 uint32_t* flags, uint8_t** view, size_t* view_size) {
   *view = nullptr; *view_size = 0; *flags = 0;
   try {
-    QPDF q; load(q,input,size,password); *flags = features(q);
+    QPDF q; load(q,input,size,password,true); *flags = features(q);
     bool inert_navigation = false;
     walk(q, [&](H o) { if (o.hasKey("/AA") || o.getKey("/OpenAction").isDictionary()) inert_navigation = true; });
     // Inert display graph only. The original bytes remain the immutable save base.

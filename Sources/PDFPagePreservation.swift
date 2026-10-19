@@ -17,9 +17,12 @@ struct PDFCapabilities {
         if flags & 32 != 0 { reasons.append("包含活动或媒体结构；脚本、启动动作和媒体交互已禁用，仅显示静态页面。") }
         if flags & 64 != 0 { reasons.append("包含 PDF Portfolio；仅显示主体页面，未提供包内文档浏览。") }
         if flags & 128 != 0 { reasons.append("包含文档认证或使用权限限制，禁止修改原文件。") }
-        if flags & 256 != 0 { reasons.append("解析器报告结构异常；无法验证无损保存，仅供阅读。") }
+        if flags & 256 != 0 { reasons.append("文档存在结构兼容问题，无法确认无损写回；原文件保持只读。") }
         let readOnly = !reasons.isEmpty
-        let copy = readOnly && flags & (1|2|128|256) == 0 && allowsCommenting && allowsPrinting
+        // Structural uncertainty prevents rewriting the original, not an explicit
+        // conversion of the visible pages. The copy path verifies every page and
+        // always writes a new file; permissions and signature guards still apply.
+        let copy = readOnly && flags & (1|2|128) == 0 && allowsCommenting && allowsPrinting
         return PDFCapabilities(mode: readOnly ? .readOnly : .fullEditing, features: flags, reasons: reasons, canCreateStaticCopy: copy)
     }
 }

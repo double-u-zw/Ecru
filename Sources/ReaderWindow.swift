@@ -772,6 +772,9 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         if !session.capabilities.canEdit {
             let alert=NSAlert();alert.messageText="此 PDF 以只读模式打开"
             alert.informativeText=session.capabilities.summary
+            if session.capabilities.canCreateStaticCopy {
+                alert.informativeText+="\n\n可以创建静态批注副本继续书写。副本保留当前可见页面，原文件不会改变。"
+            }
             if session.capabilities.canCreateStaticCopy { alert.addButton(withTitle:"创建静态批注副本…") }
             alert.addButton(withTitle:"关闭")
             alert.beginSheetModal(for:window!) { [weak self] response in
@@ -803,7 +806,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     }
     private func offerStaticCopy() {
         let alert=NSAlert();alert.messageText="创建仅含当前静态页面的批注副本？"
-        alert.informativeText="副本保留当前可见页面和文字。动态表单、附件、脚本、媒体、Portfolio 和原有可编辑批注结构不会保留。静态页面可能不包含动态内容；请先检查阅读效果。原文件不会改变。"
+        alert.informativeText="副本保留当前可见页面和文字。目录、链接、动态表单、附件、脚本、媒体、Portfolio 和原有可编辑批注结构不会保留。结构异常或动态内容可能使当前显示不完整；请先检查阅读效果。创建时会逐页检查副本的显示和文字，检查未通过时不生成文件。原文件不会改变。"
         alert.addButton(withTitle:"选择副本位置…");alert.addButton(withTitle:"取消")
         alert.beginSheetModal(for:window!) { [weak self] response in
             guard let self,response == .alertFirstButtonReturn else{return}

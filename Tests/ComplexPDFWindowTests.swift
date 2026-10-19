@@ -43,7 +43,7 @@ import Darwin
         let dir=root.appendingPathComponent(".build/complex-pdf/window-"+UUID().uuidString)
         try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
         setenv("ECRU_DATA_DIR",dir.path,1)
-        for name in ["signed","password","restricted","xfa-static","active"] {
+        for name in ["signed","password","restricted","xfa-static","active","mixed-zero-offset","recoverable-xref"] {
             let url=root.appendingPathComponent(".build/complex-pdf/fixtures/"+name+".pdf"),original=try Data(contentsOf:url)
             let session=try DocumentSession.open(url:url,password:name == "password" ? "reader-secret" : nil)
             let reader=ReaderWindow(session:session,installInputMonitor:{_,_ in NSObject()},removeInputMonitor:{_ in})
@@ -57,7 +57,15 @@ import Darwin
                     func text(_ view:NSView)->[String] {
                         (view as? NSTextField).map{[$0.stringValue]} ?? view.subviews.flatMap(text)
                     }
-                    check(text(sheet.contentView!).contains(session.capabilities.summary),name+" dialog explains actual restriction")
+                    let messages=text(sheet.contentView!)
+                    check(messages.contains(where:{$0.contains(session.capabilities.summary)}),name+" dialog explains actual restriction")
+                    if session.capabilities.features & 256 != 0 {
+                        func buttons(_ view:NSView)->[String] {
+                            (view as? NSButton).map{[$0.title]} ?? view.subviews.flatMap(buttons)
+                        }
+                        check(buttons(sheet.contentView!).contains("创建静态批注副本…"),"structural warning dialog offers annotation fallback")
+                        check(messages.contains(where:{$0.contains("继续书写")}),"structural warning explains path to writing")
+                    }
                     reader.window?.endSheet(sheet,returnCode:.abort)
                     RunLoop.current.run(until:Date().addingTimeInterval(0.02))
                 }
@@ -75,7 +83,7 @@ import Darwin
         reader.disconnectInputAndViews();reader.window?.close()
         // A page copy can still belong to the live document. Rotation during
         // static export must never notify its thumbnail view/page observers.
-        for name in ["active-rotated","xfa-static","combined"] {
+        for name in ["active-rotated","xfa-static","combined","mixed-zero-offset","recoverable-xref"] {
             let source=root.appendingPathComponent(".build/complex-pdf/fixtures/"+name+".pdf")
             let original=try Data(contentsOf:source),session=try DocumentSession.open(url:source)
             let reader=ReaderWindow(session:session,installInputMonitor:{_,_ in NSObject()},removeInputMonitor:{_ in})
