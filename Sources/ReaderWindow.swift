@@ -369,13 +369,13 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     func refresh() {
         canvas.refreshToolCursor()
         window?.title = session.fileURL.lastPathComponent
-        window?.subtitle = session.annotationReadOnly ? session.statusText : session.capabilities.mode == .annotationCopy ? "静态批注副本" : ""
+        window?.subtitle = session.usesLocalAnnotations ? "独立批注 · 原 PDF 不变" : session.annotationReadOnly ? session.statusText : session.capabilities.mode == .annotationCopy ? "静态批注副本" : ""
         window?.isDocumentEdited = session.isModified
         window?.representedURL = session.fileURL
         titleButton.title = session.fileURL.lastPathComponent; titleButton.toolTip = session.fileURL.path
         titleButton.setAccessibilityLabel("当前文档："+session.fileURL.lastPathComponent)
         statusButton.title = session.annotationReadOnly && session.capabilities.canEdit ? "批注冲突 · 只读" : session.conflictDetected ? "外部修改 · 未保存" : session.statusText; statusButton.isHidden = session.statusText.isEmpty && !session.annotationReadOnly
-        statusButton.toolTip = !session.capabilities.canEdit ? session.capabilities.summary : session.statusText.isEmpty ? "已保存" : session.statusText
+        statusButton.toolTip = session.usesLocalAnnotations ? "批注独立保存在 Ecru；分享请导出带批注 PDF" : !session.capabilities.canEdit ? session.capabilities.summary : session.statusText.isEmpty ? "已保存" : session.statusText
         statusButton.setAccessibilityLabel(statusButton.title.isEmpty ? "已保存" : statusButton.title)
         statusButton.image=NSImage(systemSymbolName:session.conflictDetected || session.annotationReadOnly ? "exclamationmark.circle" : "circle.fill",accessibilityDescription:statusButton.toolTip)
         statusButton.imagePosition = .imageOnly
@@ -769,6 +769,15 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
     @objc private func revealFile() { NSWorkspace.shared.activateFileViewerSelecting([session.fileURL]) }
     func showNotice(_ message:String) { let alert = NSAlert(); alert.messageText = message; alert.addButton(withTitle:"好"); if let window { alert.beginSheetModal(for:window) } }
     @objc private func showSaveState() {
+        if session.usesLocalAnnotations {
+            let alert=NSAlert();alert.messageText=session.statusText
+            alert.informativeText="批注由 Ecru 自动独立保存，重开原 PDF 会自动显示。直接发送原 PDF 不包含这些批注；请导出带批注 PDF 后分享。"
+            if let error=session.lastError {alert.informativeText+="\n"+error.localizedDescription}
+            alert.addButton(withTitle:"导出带批注 PDF…");alert.addButton(withTitle:"关闭")
+            alert.beginSheetModal(for:window!) { [weak self] response in
+                if response == .alertFirstButtonReturn {self?.saveDocumentAs()}
+            };return
+        }
         if !session.capabilities.canEdit {
             let alert=NSAlert();alert.messageText="此 PDF 以只读模式打开"
             alert.informativeText=session.capabilities.summary
@@ -799,11 +808,33 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
         guard !session.annotationReadOnly else { showSaveState(); return }; performSave(to:nil)
     }
     @objc func saveDocumentAs() {
+        if session.usesLocalAnnotations {exportAnnotatedPDF();return}
         guard !session.annotationReadOnly else { showSaveState(); return }
         guard !session.isSaving else { return }; canvas.finishInterruptedInput(); closeParameters()
         let panel = NSSavePanel(); panel.allowedContentTypes = [.pdf]; panel.nameFieldStringValue = session.fileURL.lastPathComponent
         panel.beginSheetModal(for:window!) { [weak self] response in if response == .OK, let url = panel.url { self?.performSave(to:url) } }
     }
+    func exportAnnotatedPDF() {
+        guard !session.isSaving else {return}
+        noteCard.commit();canvas.finishInterruptedInput();closeParameters()
+        let chooseLocation:()->Void = { [weak self] in
+            guard let self else{return}
+            let panel=NSSavePanel();panel.allowedContentTypes=[.pdf]
+            panel.title="导出带批注 PDF"
+            panel.nameFieldStringValue=self.session.fileURL.deletingPathExtension().lastPathComponent+"-带批注.pdf"
+            panel.beginSheetModal(for:self.window!) { [weak self] result in
+                guard let self,result == .OK,let url=panel.url else{return}
+                do {try self.session.exportAnnotatedPDF(to:url);self.refresh();self.showNotice("带批注 PDF 已导出。可用预览或 Acrobat 查看笔迹，并在 PDF 评论中查看文字笔记。")}
+                catch {self.showNotice(error.localizedDescription)}
+            }
+        }
+        if !session.usesLocalAnnotations {chooseLocation();return}
+        let notice=NSAlert();notice.messageText="导出带批注的标准 PDF"
+        notice.informativeText="对方无需安装 Ecru，即可查看笔迹、高亮及 PDF 评论中的文字笔记。副本保留当前静态内容；原目录、链接、动态表单、附件、签名和认证不会保留。原文件不会改变。"
+        notice.addButton(withTitle:"选择导出位置…");notice.addButton(withTitle:"取消")
+        notice.beginSheetModal(for:window!) { response in if response == .alertFirstButtonReturn {chooseLocation()} }
+    }
+
     private func offerStaticCopy() {
         let alert=NSAlert();alert.messageText="创建仅含当前静态页面的批注副本？"
         alert.informativeText="副本保留当前可见页面和文字。目录、链接、动态表单、附件、脚本、媒体、Portfolio 和原有可编辑批注结构不会保留。结构异常或动态内容可能使当前显示不完整；请先检查阅读效果。创建时会逐页检查副本的显示和文字，检查未通过时不生成文件。原文件不会改变。"
@@ -848,7 +879,7 @@ final class ReaderWindow: NSWindowController, NSWindowDelegate, NSTableViewDataS
             guard let self else { return }
             if response == .alertFirstButtonReturn { self.performSave(to:nil,thenClose:true) }
             if response == .alertSecondButtonReturn {
-                guard self.session.discardRecovery() else { self.showNotice(self.session.lastError?.localizedDescription ?? "恢复记录未能清理，窗口已保留。"); return }
+                guard self.session.discardUnsavedChanges() else { self.showNotice(self.session.lastError?.localizedDescription ?? "恢复记录未能清理，窗口已保留。"); return }
                 self.closingAfterSave = true; self.window?.close()
             }
         }; return false

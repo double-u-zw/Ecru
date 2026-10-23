@@ -49,5 +49,6 @@ zsh Scripts/test-laser.sh
 zsh Scripts/test-writing-tools.sh --synthetic
 zsh Scripts/test-google-ink-synthetic.sh
 zsh Scripts/test-complex-pdf.sh
+zsh Scripts/test-local-annotations.sh
 zsh Scripts/test-stability.sh
 print "Public core regression passed ($ecru_arch)."

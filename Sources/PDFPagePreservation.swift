@@ -10,9 +10,9 @@ struct PDFCapabilities {
     var summary: String { reasons.joined(separator: "\n") }
     static func assess(_ flags: UInt32, allowsCommenting: Bool, allowsPrinting: Bool) -> PDFCapabilities {
         var reasons: [String] = []
-        if flags & 1 != 0 { reasons.append("加密文档已解锁供阅读；尚未验证加密写回和恢复保护，禁止批注及导出解密副本。") }
-        if !allowsCommenting { reasons.append("文档权限不允许批注；输入打开密码并不授予修改权限。") }
-        if flags & 2 != 0 { reasons.append("检测到数字签名字段或签名结构，未验证密码学有效性。修改可能使签名失效；当前仅供阅读，禁止覆盖和批注副本。") }
+        if flags & 1 != 0 { reasons.append("加密文档已解锁；原文件不写回，批注由 Ecru 独立保存。导出遵循原文档的打印权限。") }
+        if !allowsCommenting { reasons.append("文档权限不允许修改原 PDF；独立批注不写入原文件。") }
+        if flags & 2 != 0 { reasons.append("检测到数字签名字段或签名结构，未验证密码学有效性。修改可能使签名失效；原文件不修改，使用独立批注。导出的静态副本不保留原签名。") }
         if flags & 8 != 0 { reasons.append("包含 XFA 动态表单；仅显示 PDF 中的静态页面，动态内容可能不完整。") }
         if flags & 32 != 0 { reasons.append("包含活动或媒体结构；脚本、启动动作和媒体交互已禁用，仅显示静态页面。") }
         if flags & 64 != 0 { reasons.append("包含 PDF Portfolio；仅显示主体页面，未提供包内文档浏览。") }

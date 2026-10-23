@@ -73,6 +73,7 @@ def generate(destination):
     w=writer(); w.pages[1].rotate(90);write('rotated',w)
     w=writer();w._ID=None;w.encrypt('reader-secret','owner-secret',algorithm='AES-256');write('password',w)
     w=writer();w._ID=None;w.encrypt('','owner-secret',algorithm='AES-256',permissions_flag=4);write('restricted',w)
+    w=writer();w._ID=None;w.encrypt('','owner-secret',algorithm='AES-256',permissions_flag=0);write('print-denied',w)
     w=writer();w._ID=None;w.encrypt('reader-secret','owner-secret',algorithm='RC4-128');write('password-rc4',w)
     def attachment(w):
         w.add_attachment('synthetic.txt',b'Embedded attachment must survive\n')

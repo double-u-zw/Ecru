@@ -147,7 +147,7 @@ import Darwin
         let input=actionPDF("/Type /Action /S /JavaScript /JS (app.alert\\('synthetic'\\))")
         try input.write(to:url);check((try? Data(contentsOf:url)) == input,"protected fixture written")
         let protectedSession=try DocumentSession.open(url:url)
-        check(protectedSession.annotationReadOnly,"active-content fixture remains read-only")
+        check(protectedSession.usesLocalAnnotations && !protectedSession.capabilities.canEdit,"active-content fixture preserves original and supports independent notes")
         let reader=ReaderWindow(session:protectedSession,installInputMonitor:{_,_ in 1},removeInputMonitor:{_ in})
         reader.pdfView.autoScales=false;reader.pdfView.scaleFactor=1;reader.pdfView.layoutDocumentView();reader.selectTool(.laser)
         let page=protectedSession.document.page(at:0)!,p=CGPoint(x:100,y:100)

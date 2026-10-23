@@ -25,6 +25,8 @@ final class RecoveryStore {
     private var previousBase:Data?
     private var currentURL:URL?
     private var committedHeadData:Data?
+    // Durable/accepted revisions survive cache resets after a superseded write.
+    private var independentKnownRevisions:[URL:UUID]=[:]
     var stageHook:((String)throws->Void)?
     private let encoder=JSONEncoder()
     func reset(){head=nil;previous=nil;previousBase=nil;currentURL=nil;committedHeadData=nil}
@@ -50,7 +52,17 @@ final class RecoveryStore {
         let descriptor=try Self.acquireLock(url,exclusive:true,create:true)
         defer{flock(descriptor,LOCK_UN);Darwin.close(descriptor)}
         let diskHeadData=try? Data(contentsOf:url)
-        if let bytes=diskHeadData,let newer=try? JSONDecoder().decode(Head.self,from:bytes),newer.updatedAt>record.updatedAt {
+        if record.independentStore == true {
+            if currentURL==url {
+                let diskRevision=try diskHeadData.map{try JSONDecoder().decode(Head.self,from:$0).revision}
+                guard diskHeadData==committedHeadData || diskRevision==head?.revision else {throw DocumentSessionError.io("独立批注已在其他窗口更新；未覆盖已有笔记，当前修改仍在窗口中")}
+            } else {
+                let diskRevision=try diskHeadData.map{try JSONDecoder().decode(Head.self,from:$0).revision}
+                guard diskRevision==record.independentBaseRevision || diskRevision==independentKnownRevisions[url] else {throw DocumentSessionError.io("独立批注已在其他窗口更新；未覆盖已有笔记，当前修改仍在窗口中")}
+            }
+            if let diskHeadData {independentKnownRevisions[url]=try JSONDecoder().decode(Head.self,from:diskHeadData).revision}
+        }
+        if record.independentStore != true,let bytes=diskHeadData,let newer=try? JSONDecoder().decode(Head.self,from:bytes),newer.updatedAt>record.updatedAt {
             return // A delayed writer cannot replace a newer durable submission.
         }
         // Another session/process may have migrated or checkpointed this head.
@@ -84,6 +96,7 @@ final class RecoveryStore {
         guard isCurrent() else{return}
         try stageHook?("before-head")
         try Self.durableWrite(bytes,to:url);metrics.bytesWritten+=bytes.count;metrics.commits+=1
+        if record.independentStore == true {independentKnownRevisions[url]=record.revision}
         head=next;previous=state;previousBase=record.pdfData;currentURL=url;committedHeadData=bytes
         // Old JSON is replaced only after all referenced objects are durable.
         // Cleanup considers the current head, never paths from a failed commit.

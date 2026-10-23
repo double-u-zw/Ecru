@@ -45,6 +45,8 @@ struct RecoveryRecord: Codable {
     var ink: [[InkStroke]]? = nil
     var annotations: AnnotationStore? = nil
     var markOrigins: [MarkSourceOrigin]? = nil
+    var independentStore: Bool? = nil
+    var independentBaseRevision: UUID? = nil
 }
 
 /// Saved PDFs are self-contained. Crash recovery may pair an immutable PDF base
@@ -54,6 +56,9 @@ struct RecoveryRecord: Codable {
 final class DocumentSession {
     // The displayed PDF contains original content and foreign/text annotations only.
     // Editable ink lives here, including the active stroke, and is rendered once by its PDFKit page overlay.
+    private(set) var usesLocalAnnotations = false
+    private var allowsLocalPDFExport = true
+    private var localBaseRevision:UUID?
     private(set) var capabilities: PDFCapabilities
     private(set) var searchData:Data
     private(set) var searchIdentity=UUID()
@@ -84,6 +89,8 @@ final class DocumentSession {
     var saveWorkHook: (() -> Void)?
     // Test seam for PDFKit failing to serialize an undo snapshot.
     var snapshotDataProvider: (() -> Data?)?
+    // Test seam for native PDF serialization failing after a complete edit.
+    var saveDataProvider: (() -> Data?)?
     // Test seam for PDFKit failing to generate crash-recovery bytes.
     var recoveryDataProvider: (() -> Data?)?
     private var originalFingerprint: String
@@ -112,7 +119,7 @@ final class DocumentSession {
     private let dataDirectory: URL
     private let worker = DispatchQueue(label: "Ecru.safe-save")
 
-    var isModified: Bool { revision != savedRevision || pendingAction != nil }
+    var isModified: Bool { revision != savedRevision || pendingAction != nil || (usesLocalAnnotations && lastError != nil) }
     var contentChangeToken: UUID { pendingActionToken ?? revision }
     var currentFileIsReadOnly: Bool {
         var info = stat()
@@ -129,6 +136,7 @@ final class DocumentSession {
     var canUndo: Bool { !undoEntries.isEmpty }
     var canRedo: Bool { !redoEntries.isEmpty }
     var statusText: String {
+        if usesLocalAnnotations { return lastError != nil ? "独立批注 · 保存失败" : isModified ? "独立批注 · 正在保存" : "独立批注 · 已保存在 Ecru" }
         if !capabilities.canEdit { return "只读 · " + (capabilities.features & 2 != 0 ? "签名未验证" : "兼容性保护") }
         if conflictDetected { return "文件已在外部修改，当前笔记尚未保存" }
         if let error = lastError, case DocumentSessionError.recoveryCleanup = error { return "恢复记录清理失败" }
@@ -170,13 +178,14 @@ final class DocumentSession {
                   let r=p.bounds(for:.cropBox)
                   return r.width.isFinite && r.height.isFinite && r.width>0 && r.height>0
               }) else { throw DocumentSessionError.invalidPDF }
-        let session=try DocumentSession(document: document, url: canonical, data: data, readingData: readingData, capabilities: capabilities)
+        let session=try DocumentSession(document: document, url: canonical, data: data, readingData: readingData, capabilities: capabilities, allowsPrinting: original.allowsPrinting)
         if missingSource {session.conflictDetected=true}
         return session
     }
 
-    private init(document: PDFDocument, url: URL, data: Data, readingData: Data, capabilities: PDFCapabilities) throws {
+    private init(document: PDFDocument, url: URL, data: Data, readingData: Data, capabilities: PDFCapabilities, allowsPrinting: Bool) throws {
         self.document = document
+        self.allowsLocalPDFExport = allowsPrinting
         self.searchData = readingData
         self.capabilities = capabilities
         fileURL = url
@@ -199,6 +208,24 @@ final class DocumentSession {
             self.capabilities=PDFCapabilities(mode:.readOnly,features:capabilities.features,reasons:["此文件的表单或附件未通过对象保留预检，禁止修改和保存。"],canCreateStaticCopy:false)
             guard let original=PDFDocument(data:readingData) else { throw DocumentSessionError.invalidPDF }
             self.document=original;importEditableInk()
+        }
+        if annotationReadOnly {
+            // Keep all source projections intact, including unknown/newer manifests.
+            guard let inert = PDFDocument(data:readingData) else { throw DocumentSessionError.invalidPDF }
+            self.document=inert
+            backingPages=(0..<inert.pageCount).map{inert.page(at:$0)!}
+            annotations=AnnotationStore(pages:backingPages.map(AnnotationPDF.identity),ink:backingPages.map{_ in []})
+            managedSourceSlots=backingPages.map{_ in []};sourceMarkSlots=[:]
+            usesLocalAnnotations=true;annotationReadOnly=false
+        }
+        if currentFileIsReadOnly { usesLocalAnnotations=true }
+        if FileManager.default.fileExists(atPath:localAnnotationsURL.path) {
+            let record=try RecoveryStore.read(localAnnotationsURL)
+            guard record.originalFingerprint==originalFingerprint,record.pdfData==backingData,
+                  Self.canonicalURL(URL(fileURLWithPath:record.sourcePath))==fileURL, let model=record.annotations,
+                  model.valid(),model.pages.count==document.pageCount else {throw DocumentSessionError.validation("独立批注与原文件不匹配，已保留批注文件")}
+            annotations=model;revision=record.revision;savedRevision=record.revision;localBaseRevision=record.revision
+            usesLocalAnnotations=true;annotationReadOnly=false;syncMarkAdapters()
         }
         // Ecru supports annotations around forms, not field-value editing. Never let native
         // widgets acquire mutable values in the presentation while saving the original field tree.
@@ -423,7 +450,7 @@ final class DocumentSession {
 
     func images(on page:PDFPage)->[PageImage] {annotations.images.filter{$0.page==document.index(for:page)}}
     @discardableResult func insertImage(_ data:Data,on page:PDFPage,rect:CGRect)throws->UUID {
-        guard !annotationReadOnly,!currentFileIsReadOnly else {throw DocumentSessionError.readOnly}
+        guard !annotationReadOnly,(usesLocalAnnotations || !currentFileIsReadOnly) else {throw DocumentSessionError.readOnly}
         let index=document.index(for:page),key=AnnotationPDF.hash(data)
         guard annotations.pages.indices.contains(index),rect.width>=0.1,rect.height>=0.1 else{throw DocumentSessionError.invalidPDF}
         var next=annotations;next.minimumReader=5
@@ -451,7 +478,7 @@ final class DocumentSession {
         let movable=Set(packet.ink.map(\.id)+packet.images.map(\.id))
         packet.groups=packet.groups.compactMap{var group=$0;group.members=group.members.filter{movable.contains($0)};return group.members.count>=2 ? group:nil}
         packet.order=packet.order.filter{movable.contains($0)}
-        guard !annotationReadOnly,!currentFileIsReadOnly else{throw DocumentSessionError.readOnly}
+        guard !annotationReadOnly,(usesLocalAnnotations || !currentFileIsReadOnly) else{throw DocumentSessionError.readOnly}
         let ids=packet.ink.map(\.id)+packet.images.map(\.id)+packet.marks.map(\.id)
         guard !ids.isEmpty,Set(ids).count==ids.count else{throw DocumentSessionError.invalidPDF}
         let bounds=(packet.ink.map(\.bounds)+packet.images.map(\.bounds)+packet.marks.map{$0.anchor.bounds}).reduce(CGRect.null){$0.union($1)}
@@ -580,6 +607,7 @@ final class DocumentSession {
     func beginAction(_ label: String) -> Bool {
         precondition(Thread.isMainThread)
         guard !annotationReadOnly else { return false }
+        if usesLocalAnnotations { return beginInkAction(label) }
         if pendingAction != nil { finishAction() }
         guard pendingAction == nil, let snapshot = snapshot() else { return false }
         pendingAction = (label, snapshot)
@@ -596,7 +624,7 @@ final class DocumentSession {
     func beginInkAction(_ label: String) -> Bool {
         precondition(Thread.isMainThread)
         guard !annotationReadOnly else { return false }
-        if snapshotDataProvider != nil { return beginAction(label) }
+        if snapshotDataProvider != nil && !usesLocalAnnotations { return beginAction(label) }
         if pendingAction != nil { finishAction() }
         guard pendingAction == nil else { return false }
         pendingAction = (label, inkSnapshot())
@@ -709,6 +737,14 @@ final class DocumentSession {
         finishAction()
         guard !annotationReadOnly else { completion(.failure(DocumentSessionError.unsupported(capabilities.canEdit ? "批注冲突或新格式，只读保护" : capabilities.summary))); return }
         guard !isSaving else { completion(.failure(DocumentSessionError.busy)); return }
+        if usesLocalAnnotations {
+            do {
+                if let proposedURL { try exportLocalAnnotations(to:proposedURL) }
+                else { try saveLocalAnnotations() }
+                completion(.success(SaveOutcome(url:proposedURL ?? fileURL,containsNewerUnsavedChanges:isModified,recoveryCleanupSucceeded:true)))
+            } catch { failSave(error,completion:completion) }
+            return
+        }
         let target = Self.canonicalURL(proposedURL ?? fileURL)
         let sameTarget = target == fileURL
         if sameTarget && conflictDetected { failSave(DocumentSessionError.conflict, completion: completion); return }
@@ -731,6 +767,7 @@ final class DocumentSession {
         lastError = nil
         onChange?()
         let hook = saveWorkHook
+        let exportProvider = saveDataProvider
         worker.async { [weak self] in
             let result: Result<String, Error>
             // PDFKit can create AppKit annotation adaptors even for detached
@@ -745,7 +782,8 @@ final class DocumentSession {
                 hook?()
                 guard let exported=Self.exportDocument(base:originalBytes,model:capturedModel,slots:removedSlots,origins:origins) else{throw DocumentSessionError.serialize}
                 detachedDocuments.append(exported)
-                guard let raw=exported.dataRepresentation(),let bytes=PDFPagePreservation.preserve(originalBytes,in:raw,removing:removedSlots) else {throw DocumentSessionError.serialize}
+                let generated=exportProvider.map{$0()} ?? exported.dataRepresentation()
+                guard let raw=generated,let bytes=PDFPagePreservation.preserve(originalBytes,in:raw,removing:removedSlots) else {throw DocumentSessionError.serialize}
                 let expectedManifest=(0..<exported.pageCount).flatMap{exported.page(at:$0)!.annotations}.compactMap{$0.value(forAnnotationKey:AnnotationPDF.manifest) as? String}.first
                 let fidelity=PDFFidelity(exported)
                 let expectedOpacity=AppearanceOpacityExpectation.capture(exported)
@@ -806,6 +844,20 @@ final class DocumentSession {
                     self.onChange?()
                     completion(.success(SaveOutcome(url: target, containsNewerUnsavedChanges: self.isModified, recoveryCleanupSucceeded: cleanupSucceeded)))
                 case .failure(let error):
+                    if let failure=error as? DocumentSessionError {
+                        switch failure {
+                        case .serialize, .validation:
+                            self.usesLocalAnnotations=true
+                            do {
+                                try self.saveLocalAnnotations()
+                                if target != self.fileURL {try self.exportLocalAnnotations(to:target)}
+                                self.onChange?()
+                                completion(.success(SaveOutcome(url:target,containsNewerUnsavedChanges:self.isModified,recoveryCleanupSucceeded:true)))
+                            } catch {self.failSave(error,completion:completion)}
+                            return
+                        default:break
+                        }
+                    }
                     if case DocumentSessionError.conflict = error { self.conflictDetected = sameTarget }
                     self.lastError = error
                     self.onChange?()
@@ -823,13 +875,22 @@ final class DocumentSession {
         let target=Self.canonicalURL(url)
         guard target != fileURL, !FileManager.default.fileExists(atPath:target.path) else { throw DocumentSessionError.io("副本必须使用尚不存在的新文件名") }
         guard isTargetOpenElsewhere?(target) != true else { throw DocumentSessionError.duplicateTarget }
+        let data=try staticAnnotationCopyData()
+        try Self.atomicWrite(data,target:target,expectedFingerprint:nil)
+    }
+
+    private func staticAnnotationCopyData() throws -> Data {
         // PDFPage.copy() can retain the source document/page backing. Changing its
         // rotation then notifies the live PDFThumbnailView, including while hidden.
         // Render from independently parsed, inert bytes so conversion never mutates
         // or sends page-geometry notifications for the document bound to the reader.
-        let drawingInspection = try PDFPagePreservation.inspect(backingData, password: nil)
-        guard let drawingDocument = PDFDocument(data: drawingInspection.readingData ?? backingData),
+        guard let drawingDocument = PDFDocument(data: searchData),
               drawingDocument.pageCount == document.pageCount else { throw DocumentSessionError.serialize }
+        for i in 0..<drawingDocument.pageCount {
+            let page=drawingDocument.page(at:i)!
+            for (slot,annotation) in page.annotations.enumerated() where managedSourceSlots[i].contains(slot) {page.removeAnnotation(annotation)}
+        }
+        let beforeDocument=PDFDocument(data:drawingDocument.dataRepresentation() ?? searchData)!
         let bytes=NSMutableData()
         guard let consumer=CGDataConsumer(data:bytes), let context=CGContext(consumer:consumer,mediaBox:nil,nil) else { throw DocumentSessionError.serialize }
         for i in 0..<document.pageCount {
@@ -854,12 +915,50 @@ final class DocumentSession {
         guard inspection.features == 0, (0..<copy.pageCount).allSatisfy({ copy.page(at:$0)?.annotations.isEmpty == true }) else { throw DocumentSessionError.validation("静态副本仍包含原有交互结构") }
         guard let verified=PDFDocument(data:data),verified.pageCount==document.pageCount else { throw DocumentSessionError.validation("静态副本重开失败") }
         for i in 0..<document.pageCount {
-            let before=document.page(at:i)!,after=verified.page(at:i)!
+            let before=beforeDocument.page(at:i)!,after=verified.page(at:i)!
             guard before.rotation==after.rotation, AnnotationPDF.close(AnnotationPDF.identity(before).crop,AnnotationPDF.identity(after).crop),
                   Self.staticTextPreserved(before.string ?? "",in:after.string ?? ""),
                   Self.sameStaticAppearance(before,after) else { throw DocumentSessionError.validation("第 \(i+1) 页静态内容或显示改变，未创建副本") }
         }
-        try Self.atomicWrite(data,target:target,expectedFingerprint:nil)
+        return data
+    }
+
+    func exportAnnotatedPDF(to url:URL) throws {
+        if usesLocalAnnotations {try exportLocalAnnotations(to:url);return}
+        finishAction()
+        let target=Self.canonicalURL(url)
+        guard target != fileURL,!FileManager.default.fileExists(atPath:target.path) else {throw DocumentSessionError.io("导出必须使用新文件名，原件不会改变")}
+        guard isTargetOpenElsewhere?(target) != true else {throw DocumentSessionError.duplicateTarget}
+        guard let projected=portableDocument(),let bytes=portableData(projected),let reopened=PDFDocument(data:bytes),
+              PDFStructure(reopened)==originalStructure,try PDFContentIntegrity(bytes)==originalContent,
+              PDFFidelity(reopened).matches(PDFFidelity(projected)) else {throw DocumentSessionError.validation("导出未通过页面和批注保留校验")}
+        try AppearanceOpacityExpectation.validate(AppearanceOpacityExpectation.capture(projected),in:bytes)
+        try Self.atomicWrite(bytes,target:target,expectedFingerprint:nil)
+    }
+
+    /// Share a self-contained PDF; local notes are never a prerequisite for the recipient.
+    func exportLocalAnnotations(to url:URL) throws {
+        guard usesLocalAnnotations,allowsLocalPDFExport else {throw DocumentSessionError.unsupported("文档不允许打印或导出；独立批注仍保存在 Ecru")}
+        finishAction()
+        do {try saveLocalAnnotations()} catch {lastError=error} // Export can rescue edits even when the local store is unavailable.
+        let target=Self.canonicalURL(url)
+        guard target != fileURL,!FileManager.default.fileExists(atPath:target.path) else {throw DocumentSessionError.io("导出必须使用新的文件名，不能覆盖原件或已有文件")}
+        guard isTargetOpenElsewhere?(target) != true else {throw DocumentSessionError.duplicateTarget}
+        let base=try staticAnnotationCopyData()
+        guard let baseDocument=PDFDocument(data:base) else {throw DocumentSessionError.serialize}
+        let content=try PDFContentIntegrity(base)
+        var exportModel=annotations
+        for i in exportModel.pages.indices {
+            var page=AnnotationPDF.identity(baseDocument.page(at:i)!);page.id=exportModel.pages[i].id
+            page.contentHash=AnnotationPDF.hash(Data(content.pages[i].utf8));exportModel.pages[i]=page
+        }
+        guard let projected=Self.exportDocument(base:base,model:exportModel,slots:backingPages.map{_ in []},origins:[:]),
+              let raw=projected.dataRepresentation(),let bytes=PDFPagePreservation.preserve(base,in:raw,removing:backingPages.map{_ in []}),
+              let reopened=PDFDocument(data:bytes),PDFFidelity(reopened).matches(PDFFidelity(projected)) else {throw DocumentSessionError.validation("导出批注内容未通过检查")}
+        try Self.checkSupported(document:reopened,data:bytes)
+        let models=(0..<reopened.pageCount).flatMap{reopened.page(at:$0)!.annotations}.compactMap{$0.value(forAnnotationKey:AnnotationPDF.manifest) as? String}
+        guard models.count==1,try AnnotationPDF.decode(models[0])==exportModel else {throw DocumentSessionError.validation("导出的笔记或笔迹不完整")}
+        try Self.atomicWrite(bytes,target:target,expectedFingerprint:nil)
     }
 
     private static func staticTextPreserved(_ original:String,in copy:String) -> Bool {
@@ -898,6 +997,7 @@ final class DocumentSession {
     }
 
     var recoverableRecord: RecoveryRecord? {
+        guard !usesLocalAnnotations else {return nil}
         recoveryWriter.flush()
         guard let record = try? RecoveryStore.read(recoveryURL), (1...7).contains(record.version),
               Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL else { return nil }
@@ -906,7 +1006,7 @@ final class DocumentSession {
 
     func restoreRecovery(_ record: RecoveryRecord) throws {
         precondition(Thread.isMainThread)
-        guard !annotationReadOnly else { throw DocumentSessionError.unsupported("当前 PDF 只读，保留恢复记录，禁止用旧草稿覆盖") }
+        guard !annotationReadOnly && !usesLocalAnnotations else { throw DocumentSessionError.unsupported("当前 PDF 只读，保留恢复记录，禁止用旧草稿覆盖") }
         guard (1...7).contains(record.version), Self.canonicalURL(URL(fileURLWithPath: record.sourcePath)) == fileURL,
         let restored = PDFDocument(data: record.pdfData) else { throw DocumentSessionError.invalidPDF }
         try Self.checkSupported(document: restored, data: record.pdfData)
@@ -959,8 +1059,28 @@ final class DocumentSession {
         onChange?()
     }
 
+    /// Used only after the user explicitly chooses not to save.
+    @discardableResult
+    func discardUnsavedChanges() -> Bool {
+        guard usesLocalAnnotations else {return discardRecovery()}
+        recoveryWriter.cancelAndWait()
+        do {
+            if FileManager.default.fileExists(atPath:localAnnotationsURL.path) {
+                let record=try RecoveryStore.read(localAnnotationsURL)
+                guard let model=record.annotations,model.valid(),record.originalFingerprint==originalFingerprint,record.pdfData==backingData else {throw DocumentSessionError.invalidPDF}
+                annotations=model;revision=record.revision;localBaseRevision=record.revision
+            }
+            savedRevision=revision;lastError=nil;return true
+        } catch {lastError=error;return false}
+    }
+
     @discardableResult
     func discardRecovery() -> Bool {
+        if usesLocalAnnotations {
+            recoveryWriter.flush()
+            if let error=recoveryWriter.failure {lastError=error;return false}
+            return true
+        }
         guard capabilities.canEdit else { return true } // Protected opens never delete existing drafts.
         let result = clearRecoveryRecords(at: pendingOldRecoveryURLs.union([recoveryURL]))
         onChange?()
@@ -993,6 +1113,15 @@ final class DocumentSession {
         return false
     }
 
+    private var localAnnotationsURL:URL {
+        dataDirectory.appendingPathComponent("Annotations/"+Self.fingerprint(Data(fileURL.path.utf8)),isDirectory:true).appendingPathComponent(originalFingerprint+".json")
+    }
+    private func saveLocalAnnotations() throws {
+        scheduleInkRecovery();recoveryWriter.flush()
+        if let error=recoveryWriter.failure {throw error}
+        savedRevision=revision;localBaseRevision=revision;lastError=nil;onChange?()
+    }
+
     private var recoveryURL: URL {
         let key = Self.fingerprint(Data(fileURL.path.utf8))
         return dataDirectory.appendingPathComponent("Recovery", isDirectory: true).appendingPathComponent(key + ".json")
@@ -1012,15 +1141,19 @@ final class DocumentSession {
     }
 
     private func scheduleInkRecovery() {
-        if !isModified { discardRecovery(); return }
-        let record = RecoveryRecord(version: annotations.minimumReader>=5 ? 7 : annotations.minimumReader>=4 ? 6 : annotations.minimumReader>=3 ? 5 : (annotations.minimumReader>=2 ? 4 : 3), sourcePath: fileURL.path,
+        if !isModified && !usesLocalAnnotations { discardRecovery(); return }
+        var record = RecoveryRecord(version: annotations.minimumReader>=5 ? 7 : annotations.minimumReader>=4 ? 6 : annotations.minimumReader>=3 ? 5 : (annotations.minimumReader>=2 ? 4 : 3), sourcePath: fileURL.path,
             originalFingerprint: originalFingerprint, pdfData: backingData,
             revision: revision, updatedAt: Date(), ink: inkPages, annotations: annotations,
             markOrigins: sourceMarkSlots.map { MarkSourceOrigin(id: $0.key, page: $0.value.0, slot: $0.value.1) })
-        let target = recoveryURL
+        if usesLocalAnnotations {record.independentStore=true;record.independentBaseRevision=localBaseRevision}
+        let target = usesLocalAnnotations ? localAnnotationsURL : recoveryURL
         recoveryWriter.submit(record, to: target, hook: recoveryWriteHook) { [weak self] error in
-            guard let self, self.isModified, self.revision == record.revision,
-                  self.recoveryURL == target else { return }
+            guard let self, (self.usesLocalAnnotations || self.isModified), self.revision == record.revision,
+                  (self.usesLocalAnnotations ? self.localAnnotationsURL : self.recoveryURL) == target else { return }
+            if self.usesLocalAnnotations && error == nil {
+                self.savedRevision=record.revision;self.localBaseRevision=record.revision;self.lastError=nil;self.onChange?()
+            }
             if let error {
                 let reason="自动恢复保护写入失败：\(error.localizedDescription)"
                 if let existing=self.lastError,case DocumentSessionError.recoveryCleanup=existing {

@@ -32,7 +32,7 @@ import Darwin
         response("wrong",.alertFirstButtonReturn) { response("reader-secret",.alertFirstButtonReturn) }
         delegate.open(url)
         waitUntil{!delegate.isDocumentOpening(url)}
-        check(delegate.readers.count == 1 && delegate.readers[0].session.annotationReadOnly,"native password error retries to unlocked read-only reader")
+        check(delegate.readers.count == 1 && delegate.readers[0].session.usesLocalAnnotations,"native password error retries to unlocked read-only reader")
         delegate.readers.first?.window?.close()
         check(try Data(contentsOf:url)==original,"password dialog flow does not write source")
     }
@@ -47,28 +47,17 @@ import Darwin
             let url=root.appendingPathComponent(".build/complex-pdf/fixtures/"+name+".pdf"),original=try Data(contentsOf:url)
             let session=try DocumentSession.open(url:url,password:name == "password" ? "reader-secret" : nil)
             let reader=ReaderWindow(session:session,installInputMonitor:{_,_ in NSObject()},removeInputMonitor:{_ in})
-            check(reader.canvas.tool == .select,name+" defaults to reading selection")
-            reader.selectTool(.pen);check(reader.canvas.tool == .select,name+" disabled pen cannot activate")
-            check(reader.window?.subtitle.contains("只读") == true,name+" native window read-only state")
-            for action in [reader.saveDocument,reader.saveDocumentAs] {
-                action()
-                check(reader.window?.attachedSheet != nil,name+" save command presents restriction before writing")
-                if let sheet=reader.window?.attachedSheet {
-                    func text(_ view:NSView)->[String] {
-                        (view as? NSTextField).map{[$0.stringValue]} ?? view.subviews.flatMap(text)
-                    }
-                    let messages=text(sheet.contentView!)
-                    check(messages.contains(where:{$0.contains(session.capabilities.summary)}),name+" dialog explains actual restriction")
-                    if session.capabilities.features & 256 != 0 {
-                        func buttons(_ view:NSView)->[String] {
-                            (view as? NSButton).map{[$0.title]} ?? view.subviews.flatMap(buttons)
-                        }
-                        check(buttons(sheet.contentView!).contains("创建静态批注副本…"),"structural warning dialog offers annotation fallback")
-                        check(messages.contains(where:{$0.contains("继续书写")}),"structural warning explains path to writing")
-                    }
-                    reader.window?.endSheet(sheet,returnCode:.abort)
-                    RunLoop.current.run(until:Date().addingTimeInterval(0.02))
-                }
+            reader.selectTool(.pen);check(reader.canvas.tool == .pen,name+" independent annotation pen available")
+            check(session.usesLocalAnnotations && reader.window?.subtitle.contains("独立批注") == true,name+" window explains independent storage")
+            reader.saveDocument()
+            check(reader.window?.attachedSheet == nil,name+" independent save does not show compatibility blocker")
+            reader.saveDocumentAs()
+            check(reader.window?.attachedSheet != nil,name+" share command explains standard PDF export")
+            if let sheet=reader.window?.attachedSheet {
+                func text(_ view:NSView)->[String] {(view as? NSTextField).map{[$0.stringValue]} ?? view.subviews.flatMap(text)}
+                check(text(sheet.contentView!).contains(where:{$0.contains("无需安装 Ecru")}),name+" explains recipient can use other readers")
+                reader.window?.endSheet(sheet,returnCode:.abort)
+                RunLoop.current.run(until:Date().addingTimeInterval(0.02))
             }
             let page=session.document.page(at:1)!;reader.navigate(to:PDFDestination(page:page,at:CGPoint(x:0,y:100)))
             check(reader.pdfView.document === session.document,name+" native PDFView is bound")

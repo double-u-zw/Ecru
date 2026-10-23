@@ -110,31 +110,31 @@ import Darwin
         let conflict=try mutate("changed-body") { pdf in
             pdf.page(at:0)!.annotations.first(where:{$0.value(forAnnotationKey:AnnotationPDF.noteKey) != nil})?.contents="外部修改"
         }
-        check(conflict.annotationReadOnly,"external standard body conflict is protected")
+        check(conflict.usesLocalAnnotations && !conflict.annotationReadOnly,"external standard body conflict is protected")
         let noManifest=try mutate("missing-manifest") { pdf in
             let p=pdf.page(at:0)!;for a in p.annotations where a.value(forAnnotationKey:AnnotationPDF.manifest) != nil {p.removeAnnotation(a)}
         }
-        check(noManifest.annotationReadOnly && !noManifest.annotations.notes.isEmpty,"missing manifest recovers plain body read-only")
+        check(noManifest.usesLocalAnnotations && noManifest.document.page(at:0)!.annotations.contains{$0.value(forAnnotationKey:AnnotationPDF.noteKey) != nil},"missing manifest recovers plain body read-only")
         let duplicate=try mutate("duplicate") { pdf in
             let p=pdf.page(at:0)!;let a=p.annotations.first(where:{$0.value(forAnnotationKey:AnnotationPDF.manifest) != nil})!
             let b=PDFAnnotation(bounds:.zero,forType:.text,withProperties:nil);b.setValue(a.value(forAnnotationKey:AnnotationPDF.manifest)!,forAnnotationKey:AnnotationPDF.manifest);p.addAnnotation(b)
         }
-        check(duplicate.annotationReadOnly,"duplicate manifests never choose first or last")
+        check(duplicate.usesLocalAnnotations,"duplicate manifests never choose first or last")
         let repeatedMark=try mutate("duplicate-mark") { pdf in
             let p=pdf.page(at:0)!;let original=p.annotations.first(where:{$0.value(forAnnotationKey:AnnotationPDF.markKey) != nil})!
             let duplicate=PDFAnnotation(bounds:original.bounds,forType:.square,withProperties:nil)
             duplicate.setValue(original.value(forAnnotationKey:AnnotationPDF.markKey)!,forAnnotationKey:AnnotationPDF.markKey);p.addAnnotation(duplicate)
         }
-        check(repeatedMark.annotationReadOnly,"conflicting duplicate marker IDs never select one copy")
+        check(repeatedMark.usesLocalAnnotations,"conflicting duplicate marker IDs never select one copy")
         let corrupt=try mutate("corrupt") {pdf in pdf.page(at:0)!.annotations.first(where:{$0.value(forAnnotationKey:AnnotationPDF.manifest) != nil})!.setValue("broken",forAnnotationKey:AnnotationPDF.manifest)}
-        check(corrupt.annotationReadOnly,"corrupt payload protected")
+        check(corrupt.usesLocalAnnotations,"corrupt payload protected")
         let future=try mutate("future") {pdf in
             let a=pdf.page(at:0)!.annotations.first(where:{$0.value(forAnnotationKey:AnnotationPDF.manifest) != nil})!
             var envelope=try! JSONDecoder().decode(AnnotationPDF.Envelope.self,from:Data((a.value(forAnnotationKey:AnnotationPDF.manifest) as! String).utf8));envelope.minimumReader=99
             a.setValue(String(decoding:try! JSONEncoder().encode(envelope),as:UTF8.self),forAnnotationKey:AnnotationPDF.manifest)
         }
-        check(future.annotationReadOnly && !future.beginInkAction("forbidden"),"future format disallows mutation")
-        var blocked=false;future.save { if case .failure = $0 { blocked=true } };check(blocked,"future format cannot overwrite or save as downgraded")
+        check(future.usesLocalAnnotations && !future.annotationReadOnly,"future format permits independent notes without adopting original data")
+        let futureBytes=try Data(contentsOf:future.fileURL);try save(future);let futureAfter=try Data(contentsOf:future.fileURL);check(futureAfter==futureBytes,"future format independent save cannot downgrade original")
         let legacy=try DocumentSession.open(url:root.appendingPathComponent("Tests/Fixtures/PDF/legacy-annotations.pdf"))
         check(!legacy.annotationReadOnly && legacy.annotations.ink.flatMap{$0}.count==3,"legacy ink migration remains editable")
         let legacyDuplicateURL=dir.appendingPathComponent("legacy-duplicate.pdf")
@@ -143,7 +143,7 @@ import Darwin
         legacyPDF.page(at:0)!.addAnnotation(InkAnnotationCodec.make(stroke))
         try legacyPDF.dataRepresentation()!.write(to:legacyDuplicateURL)
         let legacyDuplicate=try DocumentSession.open(url:legacyDuplicateURL)
-        check(legacyDuplicate.annotationReadOnly && legacyDuplicate.document.page(at:0)!.annotations.filter{InkAnnotationCodec.stroke(from:$0)?.id==stroke.id}.count==2,"legacy ID conflict preserves both original appearances read-only")
+        check(legacyDuplicate.usesLocalAnnotations && legacyDuplicate.document.page(at:0)!.annotations.filter{InkAnnotationCodec.stroke(from:$0)?.id==stroke.id}.count==2,"legacy ID conflict preserves both original appearances read-only")
         // Old model-based recovery remains supported without notes.
         let oldRecord=RecoveryRecord(version:2,sourcePath:url.path,originalFingerprint:"legacy",pdfData:original,revision:UUID(),updatedAt:Date(),ink:s.annotations.ink)
         let oldRestore=try DocumentSession.open(url:url);try oldRestore.restoreRecovery(oldRecord)

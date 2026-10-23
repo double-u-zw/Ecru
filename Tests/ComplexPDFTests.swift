@@ -61,20 +61,18 @@ import Darwin
             do {_=try DocumentSession.open(url:url);check(false,"password required")}catch DocumentSessionError.passwordRequired {check(true,name+" password required")}
             do {_=try DocumentSession.open(url:url,password:"wrong");check(false,"wrong password rejected")}catch DocumentSessionError.incorrectPassword {check(true,name+" wrong password retry")}
             let s=try DocumentSession.open(url:url,password:"reader-secret")
-            check(s.capabilities.features & 1 != 0 && s.annotationReadOnly && !s.document.isLocked,name+" unlocked read-only")
+            check(s.capabilities.features & 1 != 0 && s.usesLocalAnnotations && !s.annotationReadOnly && !s.document.isLocked,name+" unlocked read-only")
             check(!s.document.findString("compatibility",withOptions:[]).isEmpty,name+" unlocked search")
             try render(s.document.page(at:0)!,to:dir.appendingPathComponent(name+".png"))
         }
         for name in ["password","restricted","signed","xfa-static","active","automatic-uri","active-rotated","portfolio","combined"] {
             let url=fixtures.appendingPathComponent(name+".pdf"),original=try Data(contentsOf:url)
             let s=try DocumentSession.open(url:url,password:name == "password" ? "reader-secret" : nil)
-            check(s.annotationReadOnly && !s.capabilities.canEdit && !s.isModified,name+" read-only clean")
-            check(!s.document.findString("compatibility",withOptions:[]).isEmpty,name+" read-only search")
-            check(!s.beginAction("blocked") && !s.beginInkAction("blocked") && s.addRegion(page:s.document.page(at:0)!,rect:CGRect(x:20,y:20,width:30,height:30)) == nil,name+" mutations blocked")
-            do {_=try s.insertImage(picture,on:s.document.page(at:0)!,rect:CGRect(x:30,y:30,width:100,height:60));check(false,name+" image mutation blocked")}catch{check(s.annotations.images.isEmpty,name+" image mutation blocked")}
-            s.undo();s.redo();s.checkpointRecovery();check(!s.isModified && s.recoverableRecord == nil,name+" no new recovery")
-            if case .success=save(s) {check(false,"protected save rejected")};if case .success=save(s,to:dir.appendingPathComponent("blocked-"+name+".pdf")){check(false,"protected save-as rejected")}
-            check(!FileManager.default.fileExists(atPath:dir.appendingPathComponent("blocked-"+name+".pdf").path),name+" no write on save-as")
+            check(s.usesLocalAnnotations && !s.annotationReadOnly && !s.capabilities.canEdit,name+" original protected, independent notes available")
+            check(!s.document.findString("compatibility",withOptions:[]).isEmpty,name+" independent reading/search")
+            try save(s).get()
+            check(s.recoverableRecord == nil,name+" independent notes do not consume old recovery drafts")
+            check(try Data(contentsOf:url)==original,name+" independent save never rewrites original")
             let copy=dir.appendingPathComponent(name+"-static.pdf")
             if s.capabilities.canCreateStaticCopy {
                 try s.createStaticAnnotationCopy(to:copy);let c=try DocumentSession.open(url:copy)
@@ -92,11 +90,11 @@ import Darwin
         for name in ["referenced-zero-offset","nested-zero-offset","array-zero-offset","indirect-array-zero-offset","trailer-zero-offset","orphan-reference-zero-offset","mixed-zero-offset","duplicate-keys","invalid-token","recoverable-xref","xref-mixed-warning","xref-wrong-size"] {
             let url=fixtures.appendingPathComponent(name+".pdf"),original=try Data(contentsOf:url)
             let s=try DocumentSession.open(url:url)
-            check(s.capabilities.features & 256 != 0 && s.annotationReadOnly,name+" remains structurally protected")
-            check(!s.beginInkAction("blocked"),name+" original cannot be edited")
+            check(s.capabilities.features & 256 != 0 && s.usesLocalAnnotations && !s.annotationReadOnly,name+" remains structurally protected")
+            check(!s.capabilities.canEdit,name+" original cannot be rewritten")
             let ordinary=try Data(contentsOf:fixtures.appendingPathComponent("ordinary.pdf"))
             check(PDFPagePreservation.preserve(original,in:ordinary,removing:[[],[]]) == nil,name+" native writer refuses damage")
-            if case .success=save(s) {check(false,name+" save rejected")}
+            _=try save(s).get()
             check(s.capabilities.canCreateStaticCopy,name+" offers general visible-page fallback")
             let copy=dir.appendingPathComponent(name+"-static.pdf")
             try s.createStaticAnnotationCopy(to:copy)

@@ -138,6 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let file = submenu("文件"); item(file,"打开 PDF…",#selector(openDocument),"o")
         let recents = NSMenuItem(title:"最近打开",action:nil,keyEquivalent:""); recents.submenu = recentMenu; file.addItem(recents)
         file.addItem(.separator()); item(file,"关闭",#selector(closeDocument),"w"); item(file,"保存",#selector(save),"s"); item(file,"另存为…",#selector(saveAs),"s",shift:true)
+        item(file,"导出带批注 PDF…",#selector(exportAnnotatedPDF),"")
         let edit = submenu("编辑"); item(edit,"撤销",#selector(undo),"z"); item(edit,"重做",#selector(redo),"z",shift:true)
         edit.addItem(.separator()); item(edit,"复制",#selector(copySelection),"c")
         let cut = NSMenuItem(title:"剪切",action:#selector(NSText.cut(_:)),keyEquivalent:"x"); edit.addItem(cut)
@@ -201,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
     @objc private func save() { activeReader?.saveDocument() }
     @objc private func saveAs() { activeReader?.saveDocumentAs() }
+    @objc private func exportAnnotatedPDF() { activeReader?.exportAnnotatedPDF() }
     @objc private func closeDocument() { NSApp.keyWindow?.performClose(nil) }
     @objc private func undo() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor { field.undoManager?.undo() } else { activeReader?.undoAction() } }
     @objc private func redo() { if let field = NSApp.keyWindow?.firstResponder as? NSTextView, field.isFieldEditor { field.undoManager?.redo() } else { activeReader?.redoAction() } }
@@ -263,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let reader = readers.first(where: { $0.session.isModified && quitDiscarded[ObjectIdentifier($0)] != $0.session.contentChangeToken }) else {
             // Recheck every current window: another document can change during asynchronous saving.
             // Only discard recovery after every modified revision has received a decision.
-            for current in readers where !current.session.discardRecovery() {
+            for current in readers where !(quitDiscarded[ObjectIdentifier(current)] == current.session.contentChangeToken ? current.session.discardUnsavedChanges() : current.session.discardRecovery()) {
                 current.showNotice(current.session.lastError?.localizedDescription ?? "恢复记录未能清理，应用已保留。")
                 cancelQuit(); return
             }
