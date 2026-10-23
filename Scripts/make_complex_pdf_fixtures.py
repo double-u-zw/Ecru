@@ -27,7 +27,7 @@ def generate(destination):
     write('ordinary',writer());write('acroform',writer(True))
     # Deleted objects incorrectly marked in-use at offset zero occur in scanned
     # textbooks. Only an entry with no references anywhere may be tolerated.
-    def zero_offset_fixture(name, catalog=b'', trailer=b'', orphan=b'null', zero=True, broken_xref=False):
+    def zero_offset_fixture(name, catalog=b'', trailer=b'', orphan=b'null', zero=True, broken_xref=False, xref_stream=False, wrong_size=False):
         content=b'BT /F1 16 Tf 50 650 Td (Searchable compatibility text) Tj ET\n'
         objects={
             1:b'<< /Type /Catalog /Pages 2 0 R '+catalog+b' >>',
@@ -42,6 +42,14 @@ def generate(destination):
         raw=bytearray(b'%PDF-1.7\n');offsets={}
         for number,body in objects.items():
             offsets[number]=len(raw);raw+=f'{number} 0 obj\n'.encode()+body+b'\nendobj\n'
+        if xref_stream:
+            # The stream is located by startxref, but its own entry is omitted.
+            xref=len(raw)
+            entries=b'\x00'+bytes(4)+b'\xff\xff'
+            for number in range(1,9):entries+=b'\x01'+offsets[number].to_bytes(4,'big')+bytes(2)
+            raw+=b'9 0 obj\n<< /Type /XRef /Size '+str(11 if wrong_size else 10).encode()+b' /Root 1 0 R /W [1 4 2] /Index [0 9] /Length '+str(len(entries)).encode()+b' >>\nstream\n'+entries+b'\nendstream\nendobj\nstartxref\n'+str(xref).encode()+b'\n%%EOF\n'
+            (destination/(name+'.pdf')).write_bytes(raw)
+            return
         xref=len(raw);raw+=b'xref\n0 9\n0000000000 65535 f \n'
         for number in range(1,9):raw+=f'{offsets.get(number,0):010d} 00000 n \n'.encode()
         raw+=b'trailer\n<< /Size 9 /Root 1 0 R '+trailer+b' >>\nstartxref\n'+str(1 if broken_xref else xref).encode()+b'\n%%EOF\n'
@@ -58,6 +66,9 @@ def generate(destination):
     zero_offset_fixture('duplicate-keys',catalog=b'/Duplicate 1 /Duplicate 2',zero=False)
     zero_offset_fixture('invalid-token',orphan=b'<< /Value broken >>',zero=False)
     zero_offset_fixture('recoverable-xref',zero=False,broken_xref=True)
+    zero_offset_fixture('xref-missing-self',zero=False,xref_stream=True)
+    zero_offset_fixture('xref-mixed-warning',zero=False,xref_stream=True,catalog=b'/Duplicate 1 /Duplicate 2')
+    zero_offset_fixture('xref-wrong-size',zero=False,xref_stream=True,wrong_size=True)
     w=writer(True);w.root_object['/AcroForm']['/Fields'][0].get_object()[N('/V')]=T('Tampered value');write('tampered-form',w)
     w=writer(); w.pages[1].rotate(90);write('rotated',w)
     w=writer();w._ID=None;w.encrypt('reader-secret','owner-secret',algorithm='AES-256');write('password',w)

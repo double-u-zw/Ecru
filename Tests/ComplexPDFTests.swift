@@ -27,7 +27,7 @@ import Darwin
         let sample=NSBitmapImageRep(bitmapDataPlanes:nil,pixelsWide:240,pixelsHigh:160,bitsPerSample:8,samplesPerPixel:4,hasAlpha:true,isPlanar:false,colorSpaceName:.deviceRGB,bytesPerRow:0,bitsPerPixel:0)!
         for y in 0..<160 {for x in 0..<240 {sample.setColor(NSColor.systemBlue.withAlphaComponent(x<20 ? 0:0.7),atX:x,y:y)}}
         let picture=try ImageImport.normalize(sample.representation(using:.png,properties:[:])!)
-        for name in ["ordinary","rotated","acroform","attachments","form-attachments","false-signature-label","unused-zero-offset"] {
+        for name in ["ordinary","rotated","acroform","attachments","form-attachments","false-signature-label","unused-zero-offset","xref-missing-self"] {
             let url=dir.appendingPathComponent(name+".pdf");try FileManager.default.copyItem(at:fixtures.appendingPathComponent(name+".pdf"),to:url)
             let original=try Data(contentsOf:url);let s=try DocumentSession.open(url:url)
             check(s.capabilities.mode == .fullEditing && !s.annotationReadOnly,name+" full editing")
@@ -89,7 +89,7 @@ import Darwin
             check(try Data(contentsOf:url)==original,name+" original byte immutability")
         }
         for name in ["damaged","truncated"] {do{_=try DocumentSession.open(url:fixtures.appendingPathComponent(name+".pdf"));check(false,"damaged rejection")}catch{check(true,name+" safely rejected")}}
-        for name in ["referenced-zero-offset","nested-zero-offset","array-zero-offset","indirect-array-zero-offset","trailer-zero-offset","orphan-reference-zero-offset","mixed-zero-offset","duplicate-keys","invalid-token","recoverable-xref"] {
+        for name in ["referenced-zero-offset","nested-zero-offset","array-zero-offset","indirect-array-zero-offset","trailer-zero-offset","orphan-reference-zero-offset","mixed-zero-offset","duplicate-keys","invalid-token","recoverable-xref","xref-mixed-warning","xref-wrong-size"] {
             let url=fixtures.appendingPathComponent(name+".pdf"),original=try Data(contentsOf:url)
             let s=try DocumentSession.open(url:url)
             check(s.capabilities.features & 256 != 0 && s.annotationReadOnly,name+" remains structurally protected")
